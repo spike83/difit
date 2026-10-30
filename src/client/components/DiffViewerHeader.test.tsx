@@ -70,4 +70,27 @@ describe('DiffViewerHeader', () => {
 
     expect(screen.queryByLabelText('Copy file content')).not.toBeInTheDocument();
   });
+
+  it('offers "Expand all lines" while lines are hidden', () => {
+    const onToggle = vi.fn();
+    render(<DiffViewerHeader {...baseProps} fullFileToggle={{ expanded: false, onToggle }} />);
+
+    fireEvent.click(screen.getByLabelText('Expand all lines'));
+
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  it('offers "Collapse expanded lines" once the whole file is shown', () => {
+    render(
+      <DiffViewerHeader {...baseProps} fullFileToggle={{ expanded: true, onToggle: vi.fn() }} />,
+    );
+
+    expect(screen.getByLabelText('Collapse expanded lines')).toBeInTheDocument();
+  });
+
+  it('shows no full-file toggle without one', () => {
+    render(<DiffViewerHeader {...baseProps} />);
+
+    expect(screen.queryByLabelText('Expand all lines')).not.toBeInTheDocument();
+  });
 });
