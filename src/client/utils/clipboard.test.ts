@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { copyTextToClipboard } from './clipboard';
+import { copyRichTextToClipboard, copyTextToClipboard } from './clipboard';
 
 describe('copyTextToClipboard', () => {
   afterEach(() => {
@@ -41,5 +41,48 @@ describe('copyTextToClipboard', () => {
     await copyTextToClipboard('fallback copy');
 
     expect(execCommand).toHaveBeenCalledWith('copy');
+  });
+});
+
+describe('copyRichTextToClipboard', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('writes HTML and plain text through navigator.clipboard.write', async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { write } });
+    vi.stubGlobal(
+      'ClipboardItem',
+      class {
+        constructor(public items: Record<string, Blob>) {}
+      },
+    );
+
+    await copyRichTextToClipboard('<h1>Title</h1>', '# Title');
+
+    const [[[item]]] = write.mock.calls as [[[{ items: Record<string, Blob> }]]];
+    expect(await item.items['text/html']?.text()).toBe('<h1>Title</h1>');
+    expect(await item.items['text/plain']?.text()).toBe('# Title');
+  });
+
+  it('falls back to a copy event that sets both formats', async () => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {} });
+    const setData = vi.fn();
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn(() => {
+        const event = new Event('copy') as ClipboardEvent;
+        Object.defineProperty(event, 'clipboardData', { value: { setData } });
+        document.dispatchEvent(event);
+        return true;
+      }),
+    });
+
+    await copyRichTextToClipboard('<p>Body</p>', 'Body');
+
+    expect(setData).toHaveBeenCalledWith('text/html', '<p>Body</p>');
+    expect(setData).toHaveBeenCalledWith('text/plain', 'Body');
   });
 });
