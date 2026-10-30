@@ -90,6 +90,7 @@ export function TextDiffViewer({
         const firstOriginalIndex = mergedChunk.originalIndices[0] ?? 0;
         const lastOriginalIndex =
           mergedChunk.originalIndices[mergedChunk.originalIndices.length - 1] ?? 0;
+        const chunkCopyText = getChunkCopyText(mergedChunk);
 
         return (
           <React.Fragment key={mergedIndex}>
@@ -103,11 +104,13 @@ export function TextDiffViewer({
               id={`chunk-${file.path.replace(/[^a-zA-Z0-9]/g, '-')}-${mergedIndex}`}
               className="relative group/chunk"
             >
-              <CopyContentButton
-                getText={() => getChunkCopyText(mergedChunk)}
-                title="Copy hunk"
-                className="absolute top-1 right-2 z-[5] bg-github-bg-secondary opacity-0 group-hover/chunk:opacity-100 focus:opacity-100"
-              />
+              {chunkCopyText !== null && (
+                <CopyContentButton
+                  getText={() => chunkCopyText}
+                  title="Copy new code in hunk"
+                  className="absolute top-1 right-2 z-[5] bg-github-bg-secondary opacity-0 group-hover/chunk:opacity-100 focus:opacity-100"
+                />
+              )}
               <DiffChunk
                 chunk={mergedChunk}
                 chunkIndex={mergedIndex}

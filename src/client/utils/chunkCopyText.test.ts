@@ -7,26 +7,21 @@ import { getChunkCopyText } from './chunkCopyText';
 const line = (type: DiffLine['type'], content: string): DiffLine => ({ type, content });
 
 describe('getChunkCopyText', () => {
-  it('copies the hunk as it reads after the change', () => {
+  it('copies only the added lines', () => {
     const lines = [
       line('normal', 'const a = 1;'),
       line('delete', 'const b = 2;'),
       line('add', 'const b = 3;'),
-      line('normal', 'export { a, b };'),
+      line('normal', 'const c = 4;'),
+      line('add', 'export { a, b, c };'),
     ];
 
-    expect(getChunkCopyText({ lines })).toBe('const a = 1;\nconst b = 3;\nexport { a, b };');
+    expect(getChunkCopyText({ lines })).toBe('const b = 3;\nexport { a, b, c };');
   });
 
-  it('copies the removed lines when the hunk only deletes', () => {
+  it('returns null when the hunk adds nothing', () => {
     const lines = [line('normal', 'keep();'), line('delete', 'drop();')];
 
-    expect(getChunkCopyText({ lines })).toBe('keep();\ndrop();');
-  });
-
-  it('skips hunk and header lines', () => {
-    const lines = [line('hunk', '@@ -1 +1 @@'), line('add', 'added();')];
-
-    expect(getChunkCopyText({ lines })).toBe('added();');
+    expect(getChunkCopyText({ lines })).toBeNull();
   });
 });
