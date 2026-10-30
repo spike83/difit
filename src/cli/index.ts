@@ -129,7 +129,10 @@ program
     '--merge-base',
     'resolve the base revision with git merge-base before diffing (Git revision mode only)',
   )
-  .option('--title <title>', 'custom browser tab title for this review session')
+  .option(
+    '--title <title>',
+    'title for this review session, shown in the browser tab and the header',
+  )
   .action(async (commitish: string, compareWith: string | undefined, options: CliOptions) => {
     try {
       const isBackgroundChild = process.env[BACKGROUND_CHILD_ENV] === '1';
