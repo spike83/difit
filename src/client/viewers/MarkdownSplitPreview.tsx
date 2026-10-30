@@ -80,6 +80,9 @@ export type MarkdownSplitPreviewProps = Pick<
 
 const NON_RENDERED_KINDS = new Set<MarkdownBlock['kind']>(['html', 'definition']);
 const DEFINITION_KINDS = new Set<MarkdownBlock['kind']>(['definition', 'footnoteDefinition']);
+const SELECTION_BUTTON_OFFSET = 12;
+const SELECTION_BUTTON_HEIGHT = 28;
+const SELECTION_BUTTON_WIDTH = 180;
 const selectionButtonStyle: React.CSSProperties = {
   backgroundColor: 'var(--color-yellow-btn-bg)',
   color: 'var(--color-yellow-btn-text)',
@@ -524,50 +527,88 @@ export function MarkdownSplitPreview({
     [commentTarget, getSourceText, onAddComment],
   );
 
-  const handleMouseUp = useCallback(() => {
-    const container = containerRef.current;
-    const selection = window.getSelection();
-    if (!container || !selection || selection.isCollapsed || selection.rangeCount === 0) {
-      setSelectionTarget(null);
-      return;
-    }
-    const range = selection.getRangeAt(0);
-    const startElement = closestElement(range.startContainer);
-    const endElement = closestElement(range.endContainer);
-    const cell = startElement?.closest('[data-md-cell]');
-    const quote = selection.toString().trim();
-    if (!cell || !container.contains(cell) || cell !== endElement?.closest('[data-md-cell]')) {
-      setSelectionTarget(null);
-      return;
-    }
-    const startRange = readLineRange(startElement?.closest('[data-md-line-start]'));
-    const endRange = readLineRange(endElement?.closest('[data-md-line-start]'));
-    if (!quote || !startRange || !endRange) {
-      setSelectionTarget(null);
-      return;
-    }
+  const handleMouseUp = useCallback(
+    (event: MouseEvent) => {
+      const container = containerRef.current;
+      const selection = window.getSelection();
+      if (!container || !selection || selection.isCollapsed || selection.rangeCount === 0) {
+        setSelectionTarget(null);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      const startElement = closestElement(range.startContainer);
+      const endElement = closestElement(range.endContainer);
+      const cell = startElement?.closest('[data-md-cell]');
+      const endCell = endElement?.closest('[data-md-cell]');
+      const quote = selection.toString().trim();
+      // A selection may span several blocks, but only on one side: a quote that mixes
+      // before and after text cannot point at source lines.
+      const touchedSides = new Set(
+        Array.from(container.querySelectorAll('[data-md-cell]'))
+          .filter((node) => range.intersectsNode(node))
+          .map((node) => node.getAttribute('data-md-side')),
+      );
+      if (
+        !cell ||
+        !endCell ||
+        !container.contains(cell) ||
+        !container.contains(endCell) ||
+        touchedSides.size > 1
+      ) {
+        setSelectionTarget(null);
+        return;
+      }
+      const startRange = readLineRange(startElement?.closest('[data-md-line-start]'));
+      const endRange = readLineRange(endElement?.closest('[data-md-line-start]'));
+      if (!quote || !startRange || !endRange) {
+        setSelectionTarget(null);
+        return;
+      }
 
-    const side: DiffSide = cell.getAttribute('data-md-side') === 'old' ? 'old' : 'new';
-    const enclosing = {
-      start: Math.min(startRange.start, endRange.start),
-      end: Math.max(startRange.end, endRange.end),
-    };
-    const sourceLines = (side === 'old' ? oldLines : newLines).slice(
-      enclosing.start - 1,
-      enclosing.end,
-    );
-    const lines = findSourceLinesForText(sourceLines, enclosing.start, quote) ?? enclosing;
-    const rect = range.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    setSelectionTarget({
-      ...lines,
-      side,
-      rowIndex: Number(cell.getAttribute('data-md-row')),
-      quote,
-      top: rect.bottom - containerRect.top + 6,
-      left: Math.max(0, Math.min(rect.right - containerRect.left - 60, containerRect.width - 180)),
-    });
-  }, [oldLines, newLines]);
+      const side: DiffSide = cell.getAttribute('data-md-side') === 'old' ? 'old' : 'new';
+      const enclosing = {
+        start: Math.min(startRange.start, endRange.start),
+        end: Math.max(startRange.end, endRange.end),
+      };
+      const sourceLines = (side === 'old' ? oldLines : newLines).slice(
+        enclosing.start - 1,
+        enclosing.end,
+      );
+      const lines = findSourceLinesForText(sourceLines, enclosing.start, quote) ?? enclosing;
+      // Place the button where the mouse was released. The selection's bounding box spans
+      // whole lines, which puts the button far from the cursor on multi-line selections.
+      const containerRect = container.getBoundingClientRect();
+      const rects = range.getClientRects();
+      const lastRect = rects[rects.length - 1] ?? range.getBoundingClientRect();
+      const hasPointer = event.clientX !== 0 || event.clientY !== 0;
+      const x = hasPointer ? event.clientX : lastRect.right;
+      const y = hasPointer ? event.clientY : lastRect.bottom;
+      const fitsBelow = y + SELECTION_BUTTON_OFFSET + SELECTION_BUTTON_HEIGHT <= window.innerHeight;
+      setSelectionTarget({
+        ...lines,
+        side,
+        rowIndex: Number(endCell.getAttribute('data-md-row')),
+        quote,
+        top:
+          y -
+          containerRect.top +
+          (fitsBelow
+            ? SELECTION_BUTTON_OFFSET
+            : -SELECTION_BUTTON_OFFSET - SELECTION_BUTTON_HEIGHT),
+        left: Math.max(
+          0,
+          Math.min(x - containerRect.left - 16, containerRect.width - SELECTION_BUTTON_WIDTH),
+        ),
+      });
+    },
+    [oldLines, newLines],
+  );
+
+  // On the document, so a drag that ends outside the preview still offers the button.
+  useEffect(() => {
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => document.removeEventListener('mouseup', handleMouseUp);
+  }, [handleMouseUp]);
 
   useEffect(() => {
     if (!selectionTarget) return;
@@ -622,12 +663,7 @@ export function MarkdownSplitPreview({
     setExpandedSections((current) => new Set(current).add(start));
 
   return (
-    <div
-      ref={containerRef}
-      className="relative"
-      data-testid={`markdown-${layout}-preview`}
-      onMouseUp={handleMouseUp}
-    >
+    <div ref={containerRef} className="relative" data-testid={`markdown-${layout}-preview`}>
       {layout === 'split' && (
         <div className="grid grid-cols-2 border-b border-github-border bg-github-bg-secondary text-xs text-github-text-secondary">
           <div className="border-r border-github-border px-4 py-2">
