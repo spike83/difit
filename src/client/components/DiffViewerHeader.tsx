@@ -14,8 +14,26 @@ import { useState } from 'react';
 import type { DiffFile } from '../../types/diff';
 import { copyTextToClipboard } from '../utils/clipboard';
 
+import { CopyContentButton } from './CopyContentButton';
+
+export interface FileContentSource {
+  path: string;
+  ref: string;
+}
+
+const fetchFileContent = async ({ path, ref }: FileContentSource) => {
+  const response = await fetch(
+    `/api/blob/${encodeURIComponent(path)}?ref=${encodeURIComponent(ref)}`,
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file content: ${response.statusText}`);
+  }
+  return response.text();
+};
+
 interface DiffViewerHeaderProps {
   file: DiffFile;
+  contentSource?: FileContentSource | null;
   isCollapsed: boolean;
   isFocused?: boolean;
   isReviewed: boolean;
@@ -40,6 +58,7 @@ const getFileIcon = (status: DiffFile['status']) => {
 
 export const DiffViewerHeader = ({
   file,
+  contentSource,
   isCollapsed,
   isFocused = false,
   isReviewed,
@@ -116,6 +135,12 @@ export const DiffViewerHeader = ({
           >
             Updated
           </span>
+        )}
+        {contentSource && (
+          <CopyContentButton
+            getText={() => fetchFileContent(contentSource)}
+            title="Copy file content"
+          />
         )}
         <div className="flex items-center gap-2 text-xs">
           <span className="font-medium px-1 py-0.5 rounded text-github-accent bg-green-100/10">

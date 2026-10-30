@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 
 import {
   type DiffFile,
@@ -15,7 +15,7 @@ import { isWholeFileHighlightExtension } from '../utils/languageDetection';
 import { getViewerForFile } from '../viewers/registry';
 import type { DiffViewerBodyProps } from '../viewers/types';
 
-import { DiffViewerHeader } from './DiffViewerHeader';
+import { DiffViewerHeader, type FileContentSource } from './DiffViewerHeader';
 import type { AppearanceSettings } from './SettingsModal';
 
 interface DiffViewerProps {
@@ -220,6 +220,21 @@ export const DiffViewer = memo(function DiffViewer({
   // highlighted by their own language instead of line-by-line, which can't see
   // the surrounding context.
   const wholeFileHighlight = viewer.id === 'default' && isWholeFileHighlightExtension(file.path);
+  const contentSource = useMemo<FileContentSource | null>(() => {
+    if (!hasBlobContent || viewer.id === 'image') return null;
+    if (file.status === 'deleted') {
+      return baseCommitish ? { path: file.oldPath || file.path, ref: baseCommitish } : null;
+    }
+    return targetCommitish ? { path: file.path, ref: targetCommitish } : null;
+  }, [
+    hasBlobContent,
+    viewer.id,
+    file.status,
+    file.path,
+    file.oldPath,
+    baseCommitish,
+    targetCommitish,
+  ]);
 
   // Observe visibility for lazy prefetch
   useEffect(() => {
@@ -368,6 +383,7 @@ export const DiffViewer = memo(function DiffViewer({
     >
       <DiffViewerHeader
         file={file}
+        contentSource={contentSource}
         isCollapsed={isCollapsed}
         isFocused={isFocused}
         isReviewed={reviewedFiles.has(file.path)}
