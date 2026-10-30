@@ -717,9 +717,12 @@ describe('App Component - Diff Mode Persistence', () => {
     const refreshButton = await screen.findByRole('button', { name: 'Refresh' });
     fireEvent.click(refreshButton);
 
+    // Count only diff fetches: the settings requests (/api/user-settings) depend on timing.
     await waitFor(() => {
-      // 4 calls: initial /api/diff, /api/revisions, initial /api/comments sync, and refresh /api/diff
-      expect(mockGlobalFetch).toHaveBeenCalledTimes(4);
+      const diffCalls = mockGlobalFetch.mock.calls.filter(([url]) =>
+        String(url).startsWith('/api/diff'),
+      );
+      expect(diffCalls).toHaveLength(2);
     });
 
     await waitFor(() => {
