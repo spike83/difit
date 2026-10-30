@@ -199,6 +199,43 @@ describe('MarkdownSplitPreview', () => {
     );
   });
 
+  it('shows the selection comment button where the mouse is released, even outside the preview', () => {
+    const { container } = renderPreview();
+    const paragraph = within(getCell(container, 'new', 'red fox')).getByText(/red fox/);
+    const textNode = paragraph.firstChild as Text;
+    const range = document.createRange();
+    range.setStart(textNode, textNode.data.indexOf('red'));
+    range.setEnd(textNode, textNode.data.indexOf('red') + 'red fox'.length);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+
+    fireEvent.mouseUp(document.body, { clientX: 300, clientY: 200 });
+
+    const button = screen.getByRole('button', { name: 'Comment on L3' });
+    expect(button.style.top).toBe('212px');
+  });
+
+  it('offers a comment for a selection across blocks on the same side', () => {
+    const { container } = renderPreview({ layout: 'single' });
+    const textOf = (text: string) =>
+      within(getCell(container, 'new', text)).getByText(new RegExp(text)).firstChild as Text;
+    const fox = textOf('red fox');
+    const item = textOf('new item');
+    const [first, last] =
+      fox.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING
+        ? [fox, item]
+        : [item, fox];
+    const range = document.createRange();
+    range.setStart(first, 0);
+    range.setEnd(last, last.data.length);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+
+    fireEvent.mouseUp(document.body);
+
+    expect(screen.getByRole('button', { name: /^Comment on L\d+-L\d+$/ })).toBeInTheDocument();
+  });
+
   it('collapses long unchanged runs until expanded', () => {
     const paragraphs = Array.from({ length: 10 }, (_, index) => `Paragraph ${index}`);
     renderPreview({
