@@ -98,6 +98,16 @@ vi.mock('./git-diff.js', () => {
   return { GitDiffParser: GitDiffParserMock };
 });
 
+const untrackedGit = vi.hoisted(() => ({
+  findUntrackedFiles: vi.fn().mockResolvedValue([] as string[]),
+  markFilesIntentToAdd: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../cli/utils.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../cli/utils.js')>()),
+  ...untrackedGit,
+}));
+
 describe('Server Integration Tests', () => {
   describe('Comments API', () => {
     it('should accept properly formatted comments', async () => {
@@ -512,6 +522,36 @@ describe('Server Integration Tests', () => {
 
       expect(response.ok).toBe(true);
       expect(data).toHaveProperty('ignoreWhitespace', true);
+    });
+
+    it('GET /api/diff adds files created after startup when untracked files are included', async () => {
+      const result = await startServer({
+        selection: { targetCommitish: '.', baseCommitish: 'HEAD' },
+        preferredPort: 9035,
+        includeUntracked: true,
+      });
+      servers.push(result.server);
+      untrackedGit.findUntrackedFiles.mockResolvedValueOnce(['late.md']);
+      untrackedGit.markFilesIntentToAdd.mockClear();
+
+      await fetch(`http://localhost:${result.port}/api/diff?ignoreWhitespace=true`);
+
+      expect(untrackedGit.markFilesIntentToAdd).toHaveBeenCalledWith(expect.anything(), [
+        'late.md',
+      ]);
+    });
+
+    it('GET /api/diff leaves untracked files alone without includeUntracked', async () => {
+      const result = await startServer({
+        selection: { targetCommitish: '.', baseCommitish: 'HEAD' },
+        preferredPort: 9036,
+      });
+      servers.push(result.server);
+      untrackedGit.findUntrackedFiles.mockClear();
+
+      await fetch(`http://localhost:${result.port}/api/diff?ignoreWhitespace=true`);
+
+      expect(untrackedGit.findUntrackedFiles).not.toHaveBeenCalled();
     });
 
     it('GET /api/diff preserves context lines when recalculating revisions', async () => {

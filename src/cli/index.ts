@@ -278,12 +278,13 @@ program
         process.exit(1);
       }
 
+      let includeUntracked = false;
       if (selection.targetCommitish === 'working' || selection.targetCommitish === '.') {
         const git = simpleGit(repoPath);
         if (isBackgroundChild && !options.includeUntracked) {
           // Skip interactive prompts in detached background mode.
         } else {
-          await handleUntrackedFiles(git, options.includeUntracked);
+          includeUntracked = await handleUntrackedFiles(git, options.includeUntracked);
         }
       }
 
@@ -304,6 +305,7 @@ program
         diffMode: determineDiffMode(selection, compareWith),
         repoPath,
         title: options.title,
+        includeUntracked,
         ...(commentImports.length > 0 ? { commentImports } : {}),
       });
 
@@ -363,10 +365,11 @@ program
 
 void program.parseAsync();
 
-async function handleUntrackedFiles(git: SimpleGit, addAutomatically?: boolean): Promise<void> {
+/** Returns whether untracked files belong in the diff, including ones created later. */
+async function handleUntrackedFiles(git: SimpleGit, addAutomatically?: boolean): Promise<boolean> {
   const files = await findUntrackedFiles(git);
   if (files.length === 0) {
-    return;
+    return Boolean(addAutomatically);
   }
 
   const shouldAdd = addAutomatically || (await promptUserToIncludeUntracked(files));
@@ -379,6 +382,7 @@ async function handleUntrackedFiles(git: SimpleGit, addAutomatically?: boolean):
   } else {
     console.log('i Untracked files will not be shown in diff');
   }
+  return shouldAdd;
 }
 
 async function promptUserToIncludeUntracked(files: string[]): Promise<boolean> {

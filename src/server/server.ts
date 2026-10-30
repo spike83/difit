@@ -6,9 +6,11 @@ import { fileURLToPath } from 'url';
 
 import express, { type Express } from 'express';
 import open from 'open';
+import { simpleGit } from 'simple-git';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+import { findUntrackedFiles, markFilesIntentToAdd } from '../cli/utils.js';
 import { type DiffMode } from '../types/watch.js';
 import { formatCommentsOutput } from '../utils/commentFormatting.js';
 import {
@@ -60,6 +62,8 @@ interface ServerOptions {
   repoPath?: string;
   contextLines?: number;
   title?: string;
+  /** Mark files created after startup with --intent-to-add before each working-tree diff. */
+  includeUntracked?: boolean;
 }
 
 const GENERATED_STATUS_CACHE_TTL_MS = 60_000;
@@ -141,6 +145,15 @@ export async function startServer(
     { value: GeneratedStatusResponse; expiresAt: number }
   >();
   const diffDataCache = new Map<string, DiffResponse>();
+  const isWorkingTreeTarget = (selection: DiffSelection) =>
+    selection.targetCommitish === 'working' || selection.targetCommitish === '.';
+  const addNewUntrackedFiles = async () => {
+    const git = simpleGit(repositoryPath);
+    const files = await findUntrackedFiles(git);
+    if (files.length === 0) return;
+    await markFilesIntentToAdd(git, files);
+    console.log(`✅ New files added with --intent-to-add: ${files.join(' ')}`);
+  };
   const initialIgnoreWhitespace = options.ignoreWhitespace || false;
   const parseBaseMode = (value: unknown): BaseMode | undefined => {
     if (value === 'merge-base') {
@@ -317,6 +330,9 @@ export async function startServer(
         responseDiffData = cached;
       } else {
         try {
+          if (options.includeUntracked && isWorkingTreeTarget(requestedSelection)) {
+            await addNewUntrackedFiles();
+          }
           responseDiffData = await parser.parseDiff(
             requestedSelection,
             ignoreWhitespace,
