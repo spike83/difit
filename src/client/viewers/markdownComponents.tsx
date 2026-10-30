@@ -3,6 +3,7 @@ import type { ExtraProps } from 'react-markdown';
 
 import { MermaidDiagram } from '../components/MermaidDiagram';
 import { PrismSyntaxHighlighter } from '../components/PrismSyntaxHighlighter';
+import { handleAnchorLinkClick, slugifyHeading } from '../utils/markdownAnchors';
 import { extractMarkdownText, isElementWithCodeProps, isSafeUrl } from '../utils/markdownUtils';
 
 import type { DiffViewerBodyProps } from './types';
@@ -48,7 +49,12 @@ export const getMarkdownComponents = (
   const heading =
     (Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6', level: number) =>
     ({ children, node }: MarkdownElementProps) => (
-      <Tag className={`${headingStyles[level]} mt-6 mb-2 first:mt-0`} {...lines(node)}>
+      // scroll-mt keeps an anchor-link target below the sticky file header
+      <Tag
+        className={`${headingStyles[level]} mt-6 mb-2 first:mt-0 scroll-mt-24`}
+        data-md-anchor={slugifyHeading(extractMarkdownText(children))}
+        {...lines(node)}
+      >
         {children}
       </Tag>
     );
@@ -94,6 +100,7 @@ export const getMarkdownComponents = (
           href={safeHref}
           target={isExternal ? '_blank' : undefined}
           rel={isExternal ? 'noreferrer' : undefined}
+          onClick={handleAnchorLinkClick}
           className="text-sky-400 hover:text-sky-300 underline underline-offset-4"
         >
           {children}

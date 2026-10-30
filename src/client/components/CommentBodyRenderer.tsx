@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 
 import { type DiffLine, type ExpandedLine } from '../../types/diff';
 import { hasSuggestionBlock, parseSuggestionBlocks } from '../../utils/suggestionUtils';
+import { handleAnchorLinkClick } from '../utils/markdownAnchors';
 import { extractMarkdownText, isElementWithCodeProps, isSafeUrl } from '../utils/markdownUtils';
 
 import { DiffCodeLine } from './DiffCodeLine';
@@ -86,7 +87,10 @@ function CommentDiffCodeBlock({ code }: { code: string }) {
   );
 }
 
-const getCommentMarkdownComponents = (syntaxTheme?: AppearanceSettings['syntaxTheme']) => ({
+const getCommentMarkdownComponents = (
+  syntaxTheme?: AppearanceSettings['syntaxTheme'],
+  filename?: string,
+) => ({
   h1: ({ children }: { children?: React.ReactNode }) => (
     <h1 className="text-lg font-semibold mt-4 mb-2 first:mt-0">{children}</h1>
   ),
@@ -136,6 +140,7 @@ const getCommentMarkdownComponents = (syntaxTheme?: AppearanceSettings['syntaxTh
         href={safeHref}
         target={isExternal ? '_blank' : undefined}
         rel={isExternal ? 'noreferrer' : undefined}
+        onClick={(event) => handleAnchorLinkClick(event, filename)}
         className="text-sky-400 hover:text-sky-300 underline underline-offset-4"
       >
         {children}
@@ -271,8 +276,8 @@ export function CommentBodyRenderer({
   }, [body, originalCode]);
 
   const markdownComponents = useMemo(
-    () => getCommentMarkdownComponents(syntaxTheme),
-    [syntaxTheme],
+    () => getCommentMarkdownComponents(syntaxTheme, filename),
+    [syntaxTheme, filename],
   );
 
   return (
