@@ -1098,4 +1098,23 @@ describe('App Component - Custom tab title', () => {
       expect(document.title).toBe('DEV-1234 review');
     });
   });
+
+  it('shows the title next to the logo', async () => {
+    mockFetch({ ...mockDiffResponse, title: 'DEV-1234 review' });
+
+    renderApp();
+
+    const title = await screen.findByTestId('session-title');
+    expect(title).toHaveTextContent('DEV-1234 review');
+    expect(title).toHaveAttribute('title', 'DEV-1234 review');
+  });
+
+  it('shows no title element without --title', async () => {
+    mockFetch(mockDiffResponse);
+
+    renderApp();
+
+    await screen.findByRole('button', { name: 'Unified' });
+    expect(screen.queryByTestId('session-title')).not.toBeInTheDocument();
+  });
 });

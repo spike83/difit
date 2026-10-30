@@ -1304,6 +1304,15 @@ function App() {
             }`}
           >
             <div className={`flex flex-wrap items-center ${isMobile ? 'gap-2' : 'gap-3'}`}>
+              {diffData.title && (
+                <span
+                  className="max-w-[40ch] truncate text-sm font-semibold text-github-text-primary"
+                  title={diffData.title}
+                  data-testid="session-title"
+                >
+                  {diffData.title}
+                </span>
+              )}
               {!isMobile && (
                 <div className="flex bg-github-bg-tertiary border border-github-border rounded-md p-1">
                   <button
