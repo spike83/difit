@@ -1,7 +1,9 @@
 import React from 'react';
 
+import { CopyContentButton } from '../components/CopyContentButton';
 import { DiffChunk } from '../components/DiffChunk';
 import { ExpandButton } from '../components/ExpandButton';
+import { getChunkCopyText } from '../utils/chunkCopyText';
 
 import type { DiffViewerBodyProps } from './types';
 
@@ -97,7 +99,15 @@ export function TextDiffViewer({
             {!isFirstMerged &&
               renderExpandButton('middle', mergedChunk, firstOriginalIndex, lastOriginalIndex)}
 
-            <div id={`chunk-${file.path.replace(/[^a-zA-Z0-9]/g, '-')}-${mergedIndex}`}>
+            <div
+              id={`chunk-${file.path.replace(/[^a-zA-Z0-9]/g, '-')}-${mergedIndex}`}
+              className="relative group/chunk"
+            >
+              <CopyContentButton
+                getText={() => getChunkCopyText(mergedChunk)}
+                title="Copy hunk"
+                className="absolute top-1 right-2 z-[5] bg-github-bg-secondary opacity-0 group-hover/chunk:opacity-100 focus:opacity-100"
+              />
               <DiffChunk
                 chunk={mergedChunk}
                 chunkIndex={mergedIndex}
