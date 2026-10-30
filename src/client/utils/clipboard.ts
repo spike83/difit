@@ -38,6 +38,49 @@ function fallbackCopyTextToClipboard(text: string): void {
   }
 }
 
+function fallbackCopyRichTextToClipboard(html: string, text: string): void {
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') {
+    throw new Error('Clipboard is unavailable in this environment');
+  }
+
+  const onCopy = (event: ClipboardEvent) => {
+    event.clipboardData?.setData('text/html', html);
+    event.clipboardData?.setData('text/plain', text);
+    event.preventDefault();
+  };
+  document.addEventListener('copy', onCopy);
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('Failed to copy rich text');
+    }
+  } finally {
+    document.removeEventListener('copy', onCopy);
+  }
+}
+
+// Puts HTML for rich-text targets and plain text for everything else on the clipboard.
+export async function copyRichTextToClipboard(html: string, text: string): Promise<void> {
+  try {
+    if (
+      typeof navigator === 'undefined' ||
+      typeof navigator.clipboard?.write !== 'function' ||
+      typeof ClipboardItem === 'undefined'
+    ) {
+      throw new Error('Modern clipboard API is unavailable');
+    }
+
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+      }),
+    ]);
+    return;
+  } catch {
+    fallbackCopyRichTextToClipboard(html, text);
+  }
+}
+
 export async function copyTextToClipboard(text: string): Promise<void> {
   try {
     if (typeof navigator === 'undefined' || typeof navigator.clipboard?.writeText !== 'function') {

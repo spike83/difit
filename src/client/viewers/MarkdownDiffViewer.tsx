@@ -9,6 +9,7 @@ import { extractFrontmatter } from '../utils/frontmatter';
 import { isSafeUrl } from '../utils/markdownUtils';
 
 import { getMarkdownComponents } from './markdownComponents';
+import { MarkdownRichCopyButton } from './MarkdownRichCopyButton';
 import { MarkdownSplitPreview } from './MarkdownSplitPreview';
 import { DEFAULT_PREVIEW_MODE, PreviewModeTabs, type PreviewMode } from './PreviewModeTabs';
 import { TextDiffViewer } from './TextDiffViewer';
@@ -602,6 +603,9 @@ export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
           hasSplitPreview={hasSplitPreview}
           onModeChange={handleModeChange}
         />
+        {effectiveMode !== 'diff' && hasFullPreview && fullPreviewContent !== null && (
+          <MarkdownRichCopyButton markdown={fullPreviewContent} />
+        )}
       </div>
 
       {effectiveMode === 'diff' && <TextDiffViewer {...props} />}
