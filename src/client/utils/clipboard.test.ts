@@ -56,15 +56,15 @@ describe('copyRichTextToClipboard', () => {
     vi.stubGlobal(
       'ClipboardItem',
       class {
-        constructor(public items: Record<string, Blob | Promise<Blob>>) {}
+        constructor(public items: Record<string, Blob>) {}
       },
     );
 
-    await copyRichTextToClipboard(Promise.resolve('<h1>Title</h1>'), '# Title');
+    await copyRichTextToClipboard('<h1>Title</h1>', '# Title');
 
-    const [[[item]]] = write.mock.calls as [[[{ items: Record<string, Blob | Promise<Blob>> }]]];
-    expect(await (await item.items['text/html'])?.text()).toBe('<h1>Title</h1>');
-    expect(await (await item.items['text/plain'])?.text()).toBe('# Title');
+    const [[[item]]] = write.mock.calls as [[[{ items: Record<string, Blob> }]]];
+    expect(await item.items['text/html']?.text()).toBe('<h1>Title</h1>');
+    expect(await item.items['text/plain']?.text()).toBe('# Title');
   });
 
   it('falls back to a copy event that sets both formats', async () => {
