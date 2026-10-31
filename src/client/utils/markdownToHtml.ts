@@ -25,3 +25,32 @@ export function markdownToHtml(markdown: string): string {
   root.unmount();
   return html;
 }
+
+const blobToDataUrl = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read image'));
+    reader.readAsDataURL(blob);
+  });
+
+// Pasted HTML can't reach difit's server, so images served by it travel as data URLs.
+export async function inlineImages(html: string): Promise<string> {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  await Promise.all(
+    Array.from(template.content.querySelectorAll('img')).map(async (img) => {
+      const src = img.getAttribute('src');
+      if (!src) return;
+      const url = new URL(src, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      try {
+        const response = await fetch(url);
+        if (response.ok) img.setAttribute('src', await blobToDataUrl(await response.blob()));
+      } catch {
+        // keep the original src
+      }
+    }),
+  );
+  return template.innerHTML;
+}

@@ -59,7 +59,10 @@ function fallbackCopyRichTextToClipboard(html: string, text: string): void {
 }
 
 // Puts HTML for rich-text targets and plain text for everything else on the clipboard.
-export async function copyRichTextToClipboard(html: string, text: string): Promise<void> {
+export async function copyRichTextToClipboard(
+  html: string | Promise<string>,
+  text: string,
+): Promise<void> {
   try {
     if (
       typeof navigator === 'undefined' ||
@@ -71,13 +74,16 @@ export async function copyRichTextToClipboard(html: string, text: string): Promi
 
     await navigator.clipboard.write([
       new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
+        // A pending Blob keeps the click's user activation while the HTML is still built.
+        'text/html': Promise.resolve(html).then(
+          (value) => new Blob([value], { type: 'text/html' }),
+        ),
         'text/plain': new Blob([text], { type: 'text/plain' }),
       }),
     ]);
     return;
   } catch {
-    fallbackCopyRichTextToClipboard(html, text);
+    fallbackCopyRichTextToClipboard(await html, text);
   }
 }
 

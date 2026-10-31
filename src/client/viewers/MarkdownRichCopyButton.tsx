@@ -2,14 +2,14 @@ import { Check, ClipboardCopy } from 'lucide-react';
 import { useState } from 'react';
 
 import { copyRichTextToClipboard } from '../utils/clipboard';
-import { markdownToHtml } from '../utils/markdownToHtml';
+import { inlineImages, markdownToHtml } from '../utils/markdownToHtml';
 
 export function MarkdownRichCopyButton({ markdown }: { markdown: string }) {
   const [isCopied, setIsCopied] = useState(false);
 
   const handleClick = async () => {
     try {
-      await copyRichTextToClipboard(markdownToHtml(markdown), markdown);
+      await copyRichTextToClipboard(inlineImages(markdownToHtml(markdown)), markdown);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     } catch (err) {
