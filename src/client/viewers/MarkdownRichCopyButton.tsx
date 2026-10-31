@@ -9,7 +9,9 @@ export function MarkdownRichCopyButton({ markdown }: { markdown: string }) {
 
   const handleClick = async () => {
     try {
-      await copyRichTextToClipboard(inlineImages(markdownToHtml(markdown)), markdown);
+      // Local images load in milliseconds, well within the click's user activation.
+      const html = await inlineImages(markdownToHtml(markdown));
+      await copyRichTextToClipboard(html, markdown);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     } catch (err) {
