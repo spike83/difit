@@ -50,7 +50,11 @@ describe('copyRichTextToClipboard', () => {
     vi.unstubAllGlobals();
   });
 
-  it('writes HTML and plain text through navigator.clipboard.write', async () => {
+  it('falls back to navigator.clipboard.write when the copy command fails', async () => {
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
     const write = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { write } });
     vi.stubGlobal(
@@ -67,8 +71,9 @@ describe('copyRichTextToClipboard', () => {
     expect(await item.items['text/plain']?.text()).toBe('# Title');
   });
 
-  it('falls back to a copy event that sets both formats', async () => {
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {} });
+  it('sets both formats in a copy event first', async () => {
+    const write = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { write } });
     const setData = vi.fn();
     Object.defineProperty(document, 'execCommand', {
       configurable: true,
@@ -84,5 +89,6 @@ describe('copyRichTextToClipboard', () => {
 
     expect(setData).toHaveBeenCalledWith('text/html', '<p>Body</p>');
     expect(setData).toHaveBeenCalledWith('text/plain', 'Body');
+    expect(write).not.toHaveBeenCalled();
   });
 });

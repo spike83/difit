@@ -38,7 +38,7 @@ function fallbackCopyTextToClipboard(text: string): void {
   }
 }
 
-function fallbackCopyRichTextToClipboard(html: string, text: string): void {
+function copyRichTextWithCopyEvent(html: string, text: string): void {
   if (typeof document === 'undefined' || typeof document.execCommand !== 'function') {
     throw new Error('Clipboard is unavailable in this environment');
   }
@@ -59,26 +59,28 @@ function fallbackCopyRichTextToClipboard(html: string, text: string): void {
 }
 
 // Puts HTML for rich-text targets and plain text for everything else on the clipboard.
+// The copy event goes first: Chromium on Wayland (Brave) drops text/html written through
+// navigator.clipboard.write and keeps only the plain text.
 export async function copyRichTextToClipboard(html: string, text: string): Promise<void> {
   try {
+    copyRichTextWithCopyEvent(html, text);
+    return;
+  } catch {
     if (
       typeof navigator === 'undefined' ||
       typeof navigator.clipboard?.write !== 'function' ||
       typeof ClipboardItem === 'undefined'
     ) {
-      throw new Error('Modern clipboard API is unavailable');
+      throw new Error('Clipboard is unavailable in this environment');
     }
-
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([text], { type: 'text/plain' }),
-      }),
-    ]);
-    return;
-  } catch {
-    fallbackCopyRichTextToClipboard(html, text);
   }
+
+  await navigator.clipboard.write([
+    new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([text], { type: 'text/plain' }),
+    }),
+  ]);
 }
 
 export async function copyTextToClipboard(text: string): Promise<void> {
