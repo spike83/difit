@@ -506,7 +506,7 @@ export function useKeyboardNavigation({
 
   // Refresh
   useHotkeys(
-    'shift+r',
+    'r, shift+r',
     () => {
       if (onRefresh) {
         onRefresh();

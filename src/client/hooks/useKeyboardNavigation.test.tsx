@@ -849,7 +849,7 @@ describe('useKeyboardNavigation', () => {
     });
   });
 
-  describe('Refresh (shift+r)', () => {
+  describe('Refresh (r, shift+r)', () => {
     it('should trigger refresh with shift+r key', async () => {
       const user = userEvent.setup();
       const onRefresh = vi.fn();
@@ -870,6 +870,28 @@ describe('useKeyboardNavigation', () => {
       await user.keyboard('{Shift>}r{/Shift}');
 
       expect(onRefresh).toHaveBeenCalled();
+    });
+
+    it('should trigger refresh with r key', async () => {
+      const user = userEvent.setup();
+      const onRefresh = vi.fn();
+
+      renderHook(
+        () =>
+          useKeyboardNavigation({
+            files: mockFiles,
+            comments: [],
+            viewMode: 'unified',
+            onToggleReviewed: vi.fn(),
+            reviewedFiles: new Set<string>(),
+            onRefresh,
+          }),
+        { wrapper },
+      );
+
+      await user.keyboard('r');
+
+      expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
     it('should not trigger refresh when onRefresh is not provided', async () => {
