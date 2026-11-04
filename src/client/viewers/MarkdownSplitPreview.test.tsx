@@ -290,6 +290,45 @@ describe('MarkdownSplitPreview', () => {
     expect(screen.getByRole('button', { name: /^Comment on L\d+-L\d+$/ })).toBeInTheDocument();
   });
 
+  it('keeps a selection over several split rows on the side the drag started on', () => {
+    const { container } = renderPreview();
+    const heading = within(getCell(container, 'new', 'Guide')).getByText('Guide');
+    const fox = within(getCell(container, 'new', 'red fox')).getByText(/red fox/)
+      .firstChild as Text;
+    fireEvent.mouseDown(heading);
+    const range = document.createRange();
+    range.setStart(heading.firstChild as Text, 0);
+    range.setEnd(fox, fox.data.length);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    fireEvent.mouseUp(document.body);
+
+    expect(screen.getByTestId('markdown-split-preview').getAttribute('data-md-select-side')).toBe(
+      'new',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Comment on L1-L4' }));
+    const body = (screen.getByPlaceholderText('Leave a comment...') as HTMLTextAreaElement).value;
+    expect(body).toContain('> Guide');
+    expect(body).toContain('red fox');
+    expect(body).not.toContain('brown');
+  });
+
+  it('offers a comment for a selection that ends in the padding after a block', () => {
+    const { container } = renderPreview();
+    const fox = within(getCell(container, 'new', 'red fox')).getByText(/red fox/)
+      .firstChild as Text;
+    const itemCell = getCell(container, 'new', 'new item');
+    const range = document.createRange();
+    range.setStart(fox, 0);
+    range.setEnd(itemCell, itemCell.childNodes.length);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+
+    fireEvent.mouseUp(document.body);
+
+    expect(screen.getByRole('button', { name: 'Comment on L3-L6' })).toBeInTheDocument();
+  });
+
   it('collapses long unchanged runs until expanded', () => {
     const paragraphs = Array.from({ length: 10 }, (_, index) => `Paragraph ${index}`);
     renderPreview({

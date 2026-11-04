@@ -110,8 +110,19 @@ const readLineRange = (element: Element | null | undefined): LineRange | null =>
   return start > 0 && end >= start ? { start, end } : null;
 };
 
-const closestElement = (node: Node | null): Element | null =>
-  node instanceof Element ? node : (node?.parentElement ?? null);
+/** The part of `range` that lies inside `node`, as text. */
+const selectedTextIn = (range: Range, node: Node) => {
+  if (!range.intersectsNode(node)) return '';
+  const part = document.createRange();
+  part.selectNodeContents(node);
+  if (range.compareBoundaryPoints(Range.START_TO_START, part) > 0) {
+    part.setStart(range.startContainer, range.startOffset);
+  }
+  if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0) {
+    part.setEnd(range.endContainer, range.endOffset);
+  }
+  return part.toString();
+};
 
 const coversY = (element: Element, y: number) => {
   const rect = element.getBoundingClientRect();
@@ -495,6 +506,7 @@ export function MarkdownSplitPreview({
   const containerRef = useRef<HTMLDivElement>(null);
   const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(null);
   const [selectionTarget, setSelectionTarget] = useState<SelectionTarget | null>(null);
+  const selectingSideRef = useRef<DiffSide | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(() => new Set());
 
   const oldBlocks = useMemo(() => parseMarkdownBlocks(baseContent ?? ''), [baseContent]);
@@ -592,39 +604,38 @@ export function MarkdownSplitPreview({
         return;
       }
       const range = selection.getRangeAt(0);
-      const startElement = closestElement(range.startContainer);
-      const endElement = closestElement(range.endContainer);
-      const cell = startElement?.closest('[data-md-cell]');
-      const endCell = endElement?.closest('[data-md-cell]');
-      const quote = selection.toString().trim();
-      // A selection may span several blocks, but only on one side: a quote that mixes
-      // before and after text cannot point at source lines.
-      const touchedSides = new Set(
-        Array.from(container.querySelectorAll('[data-md-cell]'))
-          .filter((node) => range.intersectsNode(node))
-          .map((node) => node.getAttribute('data-md-side')),
-      );
-      if (
-        !cell ||
-        !endCell ||
-        !container.contains(cell) ||
-        !container.contains(endCell) ||
-        touchedSides.size > 1
-      ) {
-        setSelectionTarget(null);
-        return;
-      }
-      const startRange = readLineRange(startElement?.closest('[data-md-line-start]'));
-      const endRange = readLineRange(endElement?.closest('[data-md-line-start]'));
-      if (!quote || !startRange || !endRange) {
+      // Old and new cells alternate in the DOM, so a selection over several rows also
+      // covers cells of the other side. Keep the side the drag started on; without one,
+      // the selected text must sit on a single side, since a quote that mixes before and
+      // after text cannot point at source lines.
+      const textCells = Array.from(container.querySelectorAll('[data-md-cell]'))
+        .map((cell) => ({ cell, text: selectedTextIn(range, cell).trim() }))
+        .filter(({ text }) => text);
+      const textSides = new Set(textCells.map(({ cell }) => cell.getAttribute('data-md-side')));
+      const side =
+        selectingSideRef.current ?? (textSides.size === 1 ? [...textSides][0] : undefined);
+      const cells = textCells.filter(({ cell }) => cell.getAttribute('data-md-side') === side);
+      const endCell = cells[cells.length - 1]?.cell;
+      // Line ranges come from the innermost blocks holding selected text, so a drag that
+      // ends in the padding or the gutter still counts.
+      const lineElements = cells
+        .flatMap(({ cell }) => Array.from(cell.querySelectorAll('[data-md-line-start]')))
+        .filter((element) => selectedTextIn(range, element).trim());
+      const lineRanges = lineElements
+        .filter(
+          (element) => !lineElements.some((other) => other !== element && element.contains(other)),
+        )
+        .map(readLineRange)
+        .filter((lineRange): lineRange is LineRange => lineRange !== null);
+      const quote = cells.map(({ text }) => text).join('\n\n');
+      if ((side !== 'old' && side !== 'new') || !endCell || lineRanges.length === 0) {
         setSelectionTarget(null);
         return;
       }
 
-      const side: DiffSide = cell.getAttribute('data-md-side') === 'old' ? 'old' : 'new';
       const enclosing = {
-        start: Math.min(startRange.start, endRange.start),
-        end: Math.max(startRange.end, endRange.end),
+        start: Math.min(...lineRanges.map(({ start }) => start)),
+        end: Math.max(...lineRanges.map(({ end }) => end)),
       };
       const sourceLines = (side === 'old' ? oldLines : newLines).slice(
         enclosing.start - 1,
@@ -693,6 +704,18 @@ export function MarkdownSplitPreview({
     [selectionTarget, handleStartComment],
   );
 
+  // The side stays marked until the next mousedown, so the browser keeps the other column
+  // out of the selection (global.css) while the user reads it.
+  const handleMouseDown = (event: React.MouseEvent) => {
+    const side = (event.target as Element).closest('[data-md-cell]')?.getAttribute('data-md-side');
+    selectingSideRef.current = side === 'old' || side === 'new' ? side : null;
+    if (selectingSideRef.current) {
+      event.currentTarget.setAttribute('data-md-select-side', selectingSideRef.current);
+    } else {
+      event.currentTarget.removeAttribute('data-md-select-side');
+    }
+  };
+
   // On the document, so a drag that ends outside the preview still offers the button.
   useEffect(() => {
     document.addEventListener('mouseup', handleMouseUp);
@@ -752,7 +775,12 @@ export function MarkdownSplitPreview({
     setExpandedSections((current) => new Set(current).add(start));
 
   return (
-    <div ref={containerRef} className="relative" data-testid={`markdown-${layout}-preview`}>
+    <div
+      ref={containerRef}
+      className="relative"
+      data-testid={`markdown-${layout}-preview`}
+      onMouseDown={handleMouseDown}
+    >
       {layout === 'split' && (
         <div className="grid grid-cols-2 border-b border-github-border bg-github-bg-secondary text-xs text-github-text-secondary">
           <div className="border-r border-github-border px-4 py-2">

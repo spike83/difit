@@ -278,6 +278,11 @@ tr.drag-selected-last td::after {
 }
 
 /* Markdown split preview */
+[data-md-select-side="new"] [data-md-side="old"],
+[data-md-select-side="old"] [data-md-side="new"] {
+  user-select: none;
+}
+
 .md-split-spacer {
   background-image: repeating-linear-gradient(
     135deg,
