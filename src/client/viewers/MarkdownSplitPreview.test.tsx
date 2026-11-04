@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { HotkeysProvider } from 'react-hotkeys-hook';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CommentThread } from '../../types/diff';
@@ -44,7 +45,14 @@ const renderPreview = (overrides: Partial<MarkdownSplitPreviewProps> = {}) => {
     onUpdateMessage: vi.fn(),
     ...overrides,
   };
-  return { ...render(<MarkdownSplitPreview {...props} />), props };
+  return {
+    ...render(
+      <HotkeysProvider initiallyActiveScopes={['navigation']}>
+        <MarkdownSplitPreview {...props} />
+      </HotkeysProvider>,
+    ),
+    props,
+  };
 };
 
 const getCell = (container: HTMLElement, side: 'old' | 'new', text: string) => {
@@ -213,6 +221,52 @@ describe('MarkdownSplitPreview', () => {
 
     const button = screen.getByRole('button', { name: 'Comment on L3' });
     expect(button.style.top).toBe('212px');
+  });
+
+  it('starts a comment that quotes the selected text when c is pressed', () => {
+    const { container } = renderPreview({ layout: 'single' });
+    const paragraph = within(getCell(container, 'new', 'red fox')).getByText(/red fox/);
+    const textNode = paragraph.firstChild as Text;
+    const range = document.createRange();
+    range.setStart(textNode, textNode.data.indexOf('red'));
+    range.setEnd(textNode, textNode.data.indexOf('red') + 'red fox'.length);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    fireEvent.mouseUp(paragraph);
+
+    fireEvent.keyDown(document, { key: 'c', code: 'KeyC' });
+
+    expect(screen.getByText('Comment on L3')).toBeInTheDocument();
+    expect((screen.getByPlaceholderText('Leave a comment...') as HTMLTextAreaElement).value).toBe(
+      '> red fox\n\n',
+    );
+  });
+
+  it('starts a comment on the hovered block when c is pressed', () => {
+    const { container } = renderPreview({ layout: 'single' });
+    const cell = getCell(container, 'new', 'new item');
+
+    fireEvent.mouseMove(within(cell).getByText('new item'));
+    fireEvent.keyDown(document, { key: 'c', code: 'KeyC' });
+
+    expect(screen.getByText('Comment on L6')).toBeInTheDocument();
+    fireEvent.mouseLeave(cell);
+  });
+
+  it('starts a comment on the block near the top of the viewport when nothing is hovered', () => {
+    const { container } = renderPreview({ layout: 'single' });
+    const anchorY = window.innerHeight * 0.3;
+    const preview = screen.getByTestId('markdown-single-preview');
+    preview.getBoundingClientRect = () => ({ top: 0, bottom: 10_000 }) as DOMRect;
+    const cell = getCell(container, 'new', 'red fox');
+    for (const element of [cell, ...cell.querySelectorAll<HTMLElement>('[data-md-line-start]')]) {
+      element.getBoundingClientRect = () =>
+        ({ top: anchorY - 10, bottom: anchorY + 10 }) as DOMRect;
+    }
+
+    fireEvent.keyDown(document, { key: 'c', code: 'KeyC' });
+
+    expect(screen.getByText('Comment on L3-L4')).toBeInTheDocument();
   });
 
   it('offers a comment for a selection across blocks on the same side', () => {

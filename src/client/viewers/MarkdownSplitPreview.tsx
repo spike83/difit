@@ -8,6 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { useHotkeys } from 'react-hotkeys-hook';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -111,6 +112,38 @@ const readLineRange = (element: Element | null | undefined): LineRange | null =>
 
 const closestElement = (node: Node | null): Element | null =>
   node instanceof Element ? node : (node?.parentElement ?? null);
+
+const coversY = (element: Element, y: number) => {
+  const rect = element.getBoundingClientRect();
+  return y >= rect.top && y < rect.bottom;
+};
+
+// The preview whose block the pointer is on, so `c` acts in one preview only when a page
+// shows several markdown files.
+let hoveredPreview: HTMLElement | null = null;
+
+// Without a hovered block, `c` comments on the block at this height of the viewport.
+const KEYBOARD_ANCHOR_RATIO = 0.3;
+
+const findBlockAtY = (container: HTMLElement, y: number): CommentTarget | null => {
+  if (!coversY(container, y)) return null;
+  const cells = Array.from(container.querySelectorAll('[data-md-cell]')).filter(
+    (cell) => coversY(cell, y) && cell.querySelector('[data-md-line-start]'),
+  );
+  const cell = cells.find((c) => c.getAttribute('data-md-side') === 'new') ?? cells[0];
+  if (!cell) return null;
+  let anchor: Element | null = null;
+  for (const element of cell.querySelectorAll('[data-md-line-start]')) {
+    if (coversY(element, y)) anchor = element;
+  }
+  const range = readLineRange(anchor ?? cell.querySelector('[data-md-line-start]'));
+  if (!range) return null;
+  return {
+    ...range,
+    side: cell.getAttribute('data-md-side') === 'old' ? 'old' : 'new',
+    rowIndex: Number(cell.getAttribute('data-md-row')),
+  };
+};
 
 // Footnote definitions are appended to every block so `[^1]` renders as a reference; the
 // section that remark-gfm then adds under the block would repeat the definition row.
@@ -241,6 +274,7 @@ const PaneCell = memo(function PaneCell({
   frontmatterDiff,
   contentRef,
   onStartComment,
+  onHoverTarget,
 }: {
   side: DiffSide;
   rowIndex: number;
@@ -253,6 +287,7 @@ const PaneCell = memo(function PaneCell({
   frontmatterDiff?: FrontmatterPair;
   contentRef: React.RefObject<HTMLDivElement | null>;
   onStartComment: (target: CommentTarget) => void;
+  onHoverTarget: (target: CommentTarget | null) => void;
 }) {
   const cellRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<HoverTarget | null>(null);
@@ -277,8 +312,10 @@ const PaneCell = memo(function PaneCell({
     const range = anchor && cell.contains(anchor) ? readLineRange(anchor) : null;
     if (!anchor || !range) {
       setHover(null);
+      onHoverTarget(null);
       return;
     }
+    onHoverTarget({ ...range, side, rowIndex });
     const cellRect = cell.getBoundingClientRect();
     const anchorRect = anchor.getBoundingClientRect();
     const top = anchorRect.top - cellRect.top;
@@ -307,7 +344,10 @@ const PaneCell = memo(function PaneCell({
         divided ? 'border-r border-r-github-border' : ''
       } ${block ? '' : 'md-split-spacer'}`}
       onMouseMove={block ? handleMouseMove : undefined}
-      onMouseLeave={() => setHover(null)}
+      onMouseLeave={() => {
+        setHover(null);
+        onHoverTarget(null);
+      }}
     >
       {block && (
         <div ref={contentRef} className="md-split-content">
@@ -354,6 +394,7 @@ const SplitRow = memo(function SplitRow({
   newDefinitions,
   syntaxTheme,
   onStartComment,
+  onHoverTarget,
 }: {
   row: MarkdownBlockRow;
   rowIndex: number;
@@ -363,6 +404,7 @@ const SplitRow = memo(function SplitRow({
   newDefinitions: string[];
   syntaxTheme?: DiffViewerBodyProps['syntaxTheme'];
   onStartComment: (target: CommentTarget) => void;
+  onHoverTarget: (target: CommentTarget | null) => void;
 }) {
   const oldContentRef = useRef<HTMLDivElement>(null);
   const newContentRef = useRef<HTMLDivElement>(null);
@@ -426,6 +468,7 @@ const SplitRow = memo(function SplitRow({
           frontmatterDiff={frontmatterDiff}
           contentRef={side === 'old' ? oldContentRef : newContentRef}
           onStartComment={onStartComment}
+          onHoverTarget={onHoverTarget}
         />
       ))}
     </div>
@@ -510,6 +553,19 @@ export function MarkdownSplitPreview({
         ? null
         : target,
     );
+  }, []);
+
+  const hoverTargetRef = useRef<CommentTarget | null>(null);
+  const handleHoverTarget = useCallback((target: CommentTarget | null) => {
+    hoverTargetRef.current = target;
+    if (target) hoveredPreview = containerRef.current;
+    else if (hoveredPreview === containerRef.current) hoveredPreview = null;
+  }, []);
+  useEffect(() => {
+    const container = containerRef.current;
+    return () => {
+      if (hoveredPreview === container) hoveredPreview = null;
+    };
   }, []);
 
   const handleSubmitComment = useCallback(
@@ -602,6 +658,39 @@ export function MarkdownSplitPreview({
       });
     },
     [oldLines, newLines],
+  );
+
+  // `c` quotes the selected text, else comments on the hovered block, else on the block
+  // near the top of the viewport.
+  useHotkeys(
+    'c',
+    (event) => {
+      const container = containerRef.current;
+      if (!container) return;
+      let target: CommentTarget | null;
+      if (selectionTarget) {
+        target = {
+          side: selectionTarget.side,
+          rowIndex: selectionTarget.rowIndex,
+          start: selectionTarget.start,
+          end: selectionTarget.end,
+          initialBody: quoteSelection(selectionTarget.quote),
+        };
+        window.getSelection()?.removeAllRanges();
+      } else if (!(window.getSelection()?.isCollapsed ?? true)) {
+        // The selection belongs to another preview.
+        return;
+      } else if (hoveredPreview) {
+        target = hoveredPreview === container ? hoverTargetRef.current : null;
+      } else {
+        target = findBlockAtY(container, window.innerHeight * KEYBOARD_ANCHOR_RATIO);
+      }
+      if (!target) return;
+      event.preventDefault();
+      handleStartComment(target);
+    },
+    { scopes: 'navigation', enableOnFormTags: false },
+    [selectionTarget, handleStartComment],
   );
 
   // On the document, so a drag that ends outside the preview still offers the button.
@@ -727,6 +816,7 @@ export function MarkdownSplitPreview({
               newDefinitions={newDefinitions}
               syntaxTheme={syntaxTheme}
               onStartComment={handleStartComment}
+              onHoverTarget={handleHoverTarget}
             />
             {hasComments && (
               <div
