@@ -1,6 +1,15 @@
 import '@testing-library/jest-dom';
+import { Storage } from 'happy-dom';
 import { vi } from 'vitest';
 import { Agent, setGlobalDispatcher } from 'undici';
+
+// Node 25+ defines its own localStorage/sessionStorage globals, which stay undefined
+// without --localstorage-file and keep vitest from installing happy-dom's.
+for (const name of ['localStorage', 'sessionStorage'] as const) {
+  if (!globalThis[name]) {
+    Object.defineProperty(globalThis, name, { value: new Storage(), configurable: true });
+  }
+}
 
 // Disable keep-alive for tests to prevent ECONNRESET errors
 // Use pipelining=0 instead of keepAlive=false for this version of undici

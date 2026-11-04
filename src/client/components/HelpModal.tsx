@@ -278,7 +278,9 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                 <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
                   c
                 </kbd>
-                <span className="text-github-text-secondary">Add comment at current line</span>
+                <span className="text-github-text-secondary">
+                  Add comment at current line (preview: on selection or hovered block)
+                </span>
               </div>
               <div className="flex justify-between text-sm">
                 <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
