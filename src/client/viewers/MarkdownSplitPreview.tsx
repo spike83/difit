@@ -284,7 +284,8 @@ const PaneCell = memo(function PaneCell({
   divided,
   frontmatterDiff,
   contentRef,
-  onStartComment,
+  dragSelected,
+  onStartDrag,
   onHoverTarget,
 }: {
   side: DiffSide;
@@ -297,7 +298,8 @@ const PaneCell = memo(function PaneCell({
   divided: boolean;
   frontmatterDiff?: FrontmatterPair;
   contentRef: React.RefObject<HTMLDivElement | null>;
-  onStartComment: (target: CommentTarget) => void;
+  dragSelected: boolean;
+  onStartDrag: (target: CommentTarget) => void;
   onHoverTarget: (target: CommentTarget | null) => void;
 }) {
   const cellRef = useRef<HTMLDivElement>(null);
@@ -353,7 +355,7 @@ const PaneCell = memo(function PaneCell({
       data-md-status={status ?? (block ? 'unchanged' : 'empty')}
       className={`relative min-w-0 border-l-4 py-2 pl-9 pr-4 ${statusClass} ${
         divided ? 'border-r border-r-github-border' : ''
-      } ${block ? '' : 'md-split-spacer'}`}
+      } ${block ? '' : 'md-split-spacer'} ${dragSelected ? 'md-drag-selected' : ''}`}
       onMouseMove={block ? handleMouseMove : undefined}
       onMouseLeave={() => {
         setHover(null);
@@ -387,7 +389,7 @@ const PaneCell = memo(function PaneCell({
             style={{ top: hover.top }}
             onMouseDown={(event) => {
               event.preventDefault();
-              onStartComment({ side, rowIndex, start: hover.start, end: hover.end });
+              onStartDrag({ side, rowIndex, start: hover.start, end: hover.end });
             }}
           />
         </>
@@ -395,6 +397,15 @@ const PaneCell = memo(function PaneCell({
     </div>
   );
 });
+
+/** The side whose block in this row lies within the gutter drag, if any. */
+const dragSelectedSide = (
+  row: MarkdownBlockRow,
+  range: (LineRange & { side: DiffSide }) | null,
+): DiffSide | null => {
+  const block = range && blockOnSide(row, range.side);
+  return block && block.startLine <= range.end && block.endLine >= range.start ? range.side : null;
+};
 
 const SplitRow = memo(function SplitRow({
   row,
@@ -404,7 +415,8 @@ const SplitRow = memo(function SplitRow({
   oldDefinitions,
   newDefinitions,
   syntaxTheme,
-  onStartComment,
+  dragSelectedSide,
+  onStartDrag,
   onHoverTarget,
 }: {
   row: MarkdownBlockRow;
@@ -414,7 +426,8 @@ const SplitRow = memo(function SplitRow({
   oldDefinitions: string[];
   newDefinitions: string[];
   syntaxTheme?: DiffViewerBodyProps['syntaxTheme'];
-  onStartComment: (target: CommentTarget) => void;
+  dragSelectedSide: DiffSide | null;
+  onStartDrag: (target: CommentTarget) => void;
   onHoverTarget: (target: CommentTarget | null) => void;
 }) {
   const oldContentRef = useRef<HTMLDivElement>(null);
@@ -478,7 +491,8 @@ const SplitRow = memo(function SplitRow({
           divided={layout === 'split' && side === 'old'}
           frontmatterDiff={frontmatterDiff}
           contentRef={side === 'old' ? oldContentRef : newContentRef}
-          onStartComment={onStartComment}
+          dragSelected={dragSelectedSide === side}
+          onStartDrag={onStartDrag}
           onHoverTarget={onHoverTarget}
         />
       ))}
@@ -567,12 +581,53 @@ export function MarkdownSplitPreview({
     );
   }, []);
 
+  // Dragging from a gutter button over further blocks comments on the whole range,
+  // like dragging over line numbers in the code diff.
+  const [drag, setDrag] = useState<{ anchor: CommentTarget; current: CommentTarget } | null>(null);
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const handleStartDrag = useCallback((target: CommentTarget) => {
+    setDrag({ anchor: target, current: target });
+  }, []);
+
   const hoverTargetRef = useRef<CommentTarget | null>(null);
   const handleHoverTarget = useCallback((target: CommentTarget | null) => {
     hoverTargetRef.current = target;
     if (target) hoveredPreview = containerRef.current;
     else if (hoveredPreview === containerRef.current) hoveredPreview = null;
+    const current = dragRef.current;
+    if (
+      target &&
+      current &&
+      target.side === current.anchor.side &&
+      (target.start !== current.current.start || target.end !== current.current.end)
+    ) {
+      setDrag({ ...current, current: target });
+    }
   }, []);
+
+  const dragRange = drag && {
+    side: drag.anchor.side,
+    start: Math.min(drag.anchor.start, drag.current.start),
+    end: Math.max(drag.anchor.end, drag.current.end),
+  };
+
+  useEffect(() => {
+    if (!drag) return undefined;
+    const finish = () => {
+      const { anchor, current } = drag;
+      handleStartComment({
+        side: anchor.side,
+        // The form opens under the lowest row of the range.
+        rowIndex: Math.max(anchor.rowIndex, current.rowIndex),
+        start: Math.min(anchor.start, current.start),
+        end: Math.max(anchor.end, current.end),
+      });
+      setDrag(null);
+    };
+    document.addEventListener('mouseup', finish);
+    return () => document.removeEventListener('mouseup', finish);
+  }, [drag, handleStartComment]);
   useEffect(() => {
     const container = containerRef.current;
     return () => {
@@ -843,7 +898,8 @@ export function MarkdownSplitPreview({
               oldDefinitions={oldDefinitions}
               newDefinitions={newDefinitions}
               syntaxTheme={syntaxTheme}
-              onStartComment={handleStartComment}
+              dragSelectedSide={dragSelectedSide(row, dragRange)}
+              onStartDrag={handleStartDrag}
               onHoverTarget={handleHoverTarget}
             />
             {hasComments && (
