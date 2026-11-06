@@ -1,4 +1,5 @@
 import type { DiffFile, DiffSide, DiffViewMode, LineNumber } from '../../../types/diff';
+import type { PreviewMode } from '../../viewers/PreviewModeTabs';
 
 /**
  * Represents the current cursor position in the diff viewer
@@ -43,6 +44,8 @@ export interface UseKeyboardNavigationProps {
   onDeleteAllComments?: () => void;
   onShowCommentsList?: () => void;
   onRefresh?: () => void;
+  onPreviewModeChange?: (mode: PreviewMode) => void;
+  onToggleExpandAllLines?: (fileIndex: number) => void;
   isModalOpen?: boolean;
   getHoveredFileIndex?: () => number | null;
 }

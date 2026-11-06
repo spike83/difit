@@ -344,6 +344,8 @@ describe('MarkdownSplitPreview', () => {
 
     expect(screen.getByText('Comment on L1-L6')).toBeInTheDocument();
     expect(item.classList.contains('md-drag-selected')).toBe(false);
+    expect(heading.classList.contains('md-comment-selected')).toBe(true);
+    expect(item.classList.contains('md-comment-selected')).toBe(true);
   });
 
   it('keeps a gutter drag on the side it started on', () => {

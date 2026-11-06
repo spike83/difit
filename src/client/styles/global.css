@@ -289,6 +289,13 @@ tr.drag-selected-last td::after {
   box-shadow: inset 3px 0 0 #3b82f6;
 }
 
+/* Blocks the open comment form covers; colors match tr.comment-selected in the code diff.
+   A background image keeps the added/removed background underneath. */
+.md-comment-selected {
+  background-image: linear-gradient(var(--color-diff-selected-bg), var(--color-diff-selected-bg));
+  box-shadow: inset 5px 0 0 var(--color-diff-selected-border);
+}
+
 .md-split-spacer {
   background-image: repeating-linear-gradient(
     135deg,

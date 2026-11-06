@@ -587,6 +587,10 @@ function App() {
     chunkIndex: number;
     lineIndex: number;
   } | null>(null);
+  // State to toggle "expand all lines" from keyboard
+  const [expandToggleTrigger, setExpandToggleTrigger] = useState<{ fileIndex: number } | null>(
+    null,
+  );
   const fetchDiffDataRef = useRef<((selection?: DiffSelection) => Promise<void>) | null>(null);
   const handleWatchReload = useCallback(async () => {
     await fetchDiffDataRef.current?.();
@@ -647,6 +651,8 @@ function App() {
       onRefresh: () => {
         reload();
       },
+      onPreviewModeChange: handleMarkdownPreviewModeChange,
+      onToggleExpandAllLines: (fileIndex) => setExpandToggleTrigger({ fileIndex }),
     });
 
   // Viewed button in the diff header: silently remember the toggled file as
@@ -692,6 +698,8 @@ function App() {
   const handleCommentTriggerHandled = useCallback(() => {
     setCommentTrigger(null);
   }, [setCommentTrigger]);
+
+  const handleExpandToggleHandled = useCallback(() => setExpandToggleTrigger(null), []);
 
   const handleGenerateThreadPrompt = useCallback(
     (thread: CommentThread) => generateThreadPrompt(thread.id),
@@ -1583,6 +1591,10 @@ function App() {
                         commentTrigger?.fileIndex === fileIndex ? commentTrigger : null
                       }
                       onCommentTriggerHandled={handleCommentTriggerHandled}
+                      expandToggleTrigger={
+                        expandToggleTrigger?.fileIndex === fileIndex ? expandToggleTrigger : null
+                      }
+                      onExpandToggleHandled={handleExpandToggleHandled}
                       mergedChunks={mergedChunks}
                       expandLines={expandLines}
                       expandAllBetweenChunks={expandAllBetweenChunks}

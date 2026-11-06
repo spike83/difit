@@ -270,6 +270,29 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
               </div>
               <div className="flex justify-between text-sm">
                 <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                  x
+                </kbd>
+                <span className="text-github-text-secondary">
+                  Expand or collapse all lines of current (or hovered) file
+                </span>
+              </div>
+              <div className="flex justify-between gap-4 text-sm">
+                <div className="flex items-center gap-1">
+                  {['a', 's', 'd', 'f'].map((key) => (
+                    <kbd
+                      key={key}
+                      className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono"
+                    >
+                      {key}
+                    </kbd>
+                  ))}
+                </div>
+                <span className="text-github-text-secondary text-right">
+                  Markdown: Diff, Split Preview, Diff Preview, Full Preview
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
                   c
                 </kbd>
                 <span className="text-github-text-secondary">

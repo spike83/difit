@@ -285,6 +285,7 @@ const PaneCell = memo(function PaneCell({
   frontmatterDiff,
   contentRef,
   dragSelected,
+  commentSelected,
   onStartDrag,
   onHoverTarget,
 }: {
@@ -299,6 +300,7 @@ const PaneCell = memo(function PaneCell({
   frontmatterDiff?: FrontmatterPair;
   contentRef: React.RefObject<HTMLDivElement | null>;
   dragSelected: boolean;
+  commentSelected: boolean;
   onStartDrag: (target: CommentTarget) => void;
   onHoverTarget: (target: CommentTarget | null) => void;
 }) {
@@ -355,7 +357,9 @@ const PaneCell = memo(function PaneCell({
       data-md-status={status ?? (block ? 'unchanged' : 'empty')}
       className={`relative min-w-0 border-l-4 py-2 pl-9 pr-4 ${statusClass} ${
         divided ? 'border-r border-r-github-border' : ''
-      } ${block ? '' : 'md-split-spacer'} ${dragSelected ? 'md-drag-selected' : ''}`}
+      } ${block ? '' : 'md-split-spacer'} ${dragSelected ? 'md-drag-selected' : ''} ${
+        commentSelected ? 'md-comment-selected' : ''
+      }`}
       onMouseMove={block ? handleMouseMove : undefined}
       onMouseLeave={() => {
         setHover(null);
@@ -398,8 +402,8 @@ const PaneCell = memo(function PaneCell({
   );
 });
 
-/** The side whose block in this row lies within the gutter drag, if any. */
-const dragSelectedSide = (
+/** The side whose block in this row lies within the range, if any. */
+const selectedSide = (
   row: MarkdownBlockRow,
   range: (LineRange & { side: DiffSide }) | null,
 ): DiffSide | null => {
@@ -416,6 +420,7 @@ const SplitRow = memo(function SplitRow({
   newDefinitions,
   syntaxTheme,
   dragSelectedSide,
+  commentSelectedSide,
   onStartDrag,
   onHoverTarget,
 }: {
@@ -427,6 +432,7 @@ const SplitRow = memo(function SplitRow({
   newDefinitions: string[];
   syntaxTheme?: DiffViewerBodyProps['syntaxTheme'];
   dragSelectedSide: DiffSide | null;
+  commentSelectedSide: DiffSide | null;
   onStartDrag: (target: CommentTarget) => void;
   onHoverTarget: (target: CommentTarget | null) => void;
 }) {
@@ -492,6 +498,7 @@ const SplitRow = memo(function SplitRow({
           frontmatterDiff={frontmatterDiff}
           contentRef={side === 'old' ? oldContentRef : newContentRef}
           dragSelected={dragSelectedSide === side}
+          commentSelected={commentSelectedSide === side}
           onStartDrag={onStartDrag}
           onHoverTarget={onHoverTarget}
         />
@@ -898,7 +905,8 @@ export function MarkdownSplitPreview({
               oldDefinitions={oldDefinitions}
               newDefinitions={newDefinitions}
               syntaxTheme={syntaxTheme}
-              dragSelectedSide={dragSelectedSide(row, dragRange)}
+              dragSelectedSide={selectedSide(row, dragRange)}
+              commentSelectedSide={dragRange ? null : selectedSide(row, commentTarget)}
               onStartDrag={handleStartDrag}
               onHoverTarget={handleHoverTarget}
             />
