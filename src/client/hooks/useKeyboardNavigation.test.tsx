@@ -914,6 +914,85 @@ describe('useKeyboardNavigation', () => {
     });
   });
 
+  describe('Preview mode (a, s, d, f)', () => {
+    it('switches the markdown view with a, s, d and f', async () => {
+      const user = userEvent.setup();
+      const onPreviewModeChange = vi.fn();
+
+      renderHook(
+        () =>
+          useKeyboardNavigation({
+            files: mockFiles,
+            comments: [],
+            viewMode: 'unified',
+            onToggleReviewed: vi.fn(),
+            reviewedFiles: new Set<string>(),
+            onPreviewModeChange,
+          }),
+        { wrapper },
+      );
+
+      await user.keyboard('asdf');
+
+      expect(onPreviewModeChange.mock.calls).toEqual([
+        ['diff'],
+        ['split-preview'],
+        ['diff-preview'],
+        ['full-preview'],
+      ]);
+    });
+
+    it('leaves shift+d to delete all comments', async () => {
+      const user = userEvent.setup();
+      const onPreviewModeChange = vi.fn();
+      const onDeleteAllComments = vi.fn();
+
+      renderHook(
+        () =>
+          useKeyboardNavigation({
+            files: mockFiles,
+            comments: [],
+            viewMode: 'unified',
+            onToggleReviewed: vi.fn(),
+            reviewedFiles: new Set<string>(),
+            onPreviewModeChange,
+            onDeleteAllComments,
+          }),
+        { wrapper },
+      );
+
+      await user.keyboard('{Shift>}d{/Shift}');
+
+      expect(onDeleteAllComments).toHaveBeenCalledTimes(1);
+      expect(onPreviewModeChange).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Expand all lines (x)', () => {
+    it('toggles the hovered file', async () => {
+      const user = userEvent.setup();
+      const onToggleExpandAllLines = vi.fn();
+
+      renderHook(
+        () =>
+          useKeyboardNavigation({
+            files: mockFiles,
+            comments: [],
+            viewMode: 'unified',
+            onToggleReviewed: vi.fn(),
+            reviewedFiles: new Set<string>(),
+            onToggleExpandAllLines,
+            getHoveredFileIndex: () => 1,
+          }),
+        { wrapper },
+      );
+
+      await user.keyboard('x');
+
+      expect(onToggleExpandAllLines).toHaveBeenCalledWith(1);
+    });
+  });
+
   describe('Add Comment (c)', () => {
     it('should trigger comment creation on add/normal lines with c key', async () => {
       const user = userEvent.setup();

@@ -34,6 +34,8 @@ export function useKeyboardNavigation({
   onDeleteAllComments,
   onShowCommentsList,
   onRefresh,
+  onPreviewModeChange,
+  onToggleExpandAllLines,
   getHoveredFileIndex,
 }: UseKeyboardNavigationProps): UseKeyboardNavigationReturn {
   const [cursor, setCursor] = useState<CursorPosition | null>(null);
@@ -514,6 +516,31 @@ export function useKeyboardNavigation({
     },
     hotkeyOptions,
     [onRefresh],
+  );
+
+  // Markdown view: Diff, Split Preview, Diff Preview, Full Preview
+  useHotkeys('a', () => onPreviewModeChange?.('diff'), hotkeyOptions, [onPreviewModeChange]);
+  useHotkeys('s', () => onPreviewModeChange?.('split-preview'), hotkeyOptions, [
+    onPreviewModeChange,
+  ]);
+  useHotkeys('d', () => onPreviewModeChange?.('diff-preview'), hotkeyOptions, [
+    onPreviewModeChange,
+  ]);
+  useHotkeys('f', () => onPreviewModeChange?.('full-preview'), hotkeyOptions, [
+    onPreviewModeChange,
+  ]);
+
+  // Expand or collapse all lines of the current (or hovered) file
+  useHotkeys(
+    'x',
+    () => {
+      const fileIndex = cursor?.fileIndex ?? getHoveredFileIndex?.() ?? null;
+      if (fileIndex !== null && onToggleExpandAllLines) {
+        onToggleExpandAllLines(fileIndex);
+      }
+    },
+    hotkeyOptions,
+    [cursor, getHoveredFileIndex, onToggleExpandAllLines],
   );
 
   // Comment creation

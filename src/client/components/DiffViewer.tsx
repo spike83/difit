@@ -76,6 +76,8 @@ interface DiffViewerProps {
     lineIndex: number;
   } | null;
   onCommentTriggerHandled?: () => void;
+  expandToggleTrigger?: { fileIndex: number } | null;
+  onExpandToggleHandled?: () => void;
   diffVersion?: number;
   markdownPreviewMode?: DiffViewerBodyProps['markdownPreviewMode'];
   onMarkdownPreviewModeChange?: DiffViewerBodyProps['onMarkdownPreviewModeChange'];
@@ -206,6 +208,8 @@ export const DiffViewer = memo(function DiffViewer({
   onLineClick,
   commentTrigger,
   onCommentTriggerHandled,
+  expandToggleTrigger,
+  onExpandToggleHandled,
   mergedChunks,
   expandLines,
   expandAllBetweenChunks,
@@ -231,13 +235,34 @@ export const DiffViewer = memo(function DiffViewer({
   const hasExpandedLines = mergedChunks.some((chunk) =>
     chunk.lines.some((line) => 'isExpanded' in line && line.isExpanded),
   );
-  const fullFileToggle = !canExpandHiddenLines
-    ? undefined
-    : hasHiddenLines
-      ? { expanded: false, onToggle: () => void expandAllLines(file) }
-      : hasExpandedLines
-        ? { expanded: true, onToggle: () => collapseExpandedLines(file) }
-        : undefined;
+  // The full preview renders the whole file, so there is nothing to expand.
+  const isFullPreview = viewer.id === 'markdown' && markdownPreviewMode === 'full-preview';
+  const fullFileToggle = useMemo(
+    () =>
+      !canExpandHiddenLines || isFullPreview
+        ? undefined
+        : hasHiddenLines
+          ? { expanded: false, onToggle: () => void expandAllLines(file) }
+          : hasExpandedLines
+            ? { expanded: true, onToggle: () => collapseExpandedLines(file) }
+            : undefined,
+    [
+      canExpandHiddenLines,
+      isFullPreview,
+      hasHiddenLines,
+      hasExpandedLines,
+      expandAllLines,
+      collapseExpandedLines,
+      file,
+    ],
+  );
+
+  useEffect(() => {
+    if (!expandToggleTrigger) return;
+    fullFileToggle?.onToggle();
+    onExpandToggleHandled?.();
+  }, [expandToggleTrigger, fullFileToggle, onExpandToggleHandled]);
+
   // Tokenize the whole file so embedded blocks (e.g. <script>/<style>) are
   // highlighted by their own language instead of line-by-line, which can't see
   // the surrounding context.
