@@ -11,6 +11,13 @@ export const EMPTY_MERGED_CHUNKS_STATE: MergedChunksState = {
   byFile: new Map(),
 };
 
+// -1 after the last hunk means the file length isn't known yet, so lines may still be hidden.
+export const chunksHaveHiddenLines = (chunks: MergedChunk[]) =>
+  chunks.some((chunk) => chunk.hiddenLinesBefore > 0 || chunk.hiddenLinesAfter !== 0);
+
+export const chunksHaveExpandedLines = (chunks: MergedChunk[]) =>
+  chunks.some((chunk) => chunk.lines.some((line) => 'isExpanded' in line && line.isExpanded));
+
 export function buildMergedChunksState(
   diffVersion: number,
   renderedFilePaths: Set<string>,

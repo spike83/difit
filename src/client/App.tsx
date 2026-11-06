@@ -51,6 +51,8 @@ import { resolveEventSourceUrl } from './utils/eventSourceUrl';
 import {
   EMPTY_MERGED_CHUNKS_STATE,
   buildMergedChunksState,
+  chunksHaveExpandedLines,
+  chunksHaveHiddenLines,
   getMergedChunksForVersion,
 } from './utils/mergedChunks';
 import { buildFileLineIndex, isThreadOutdated } from './utils/outdatedComments';
@@ -59,6 +61,7 @@ import {
   parsePreviewMode,
   type PreviewMode,
 } from './viewers/PreviewModeTabs';
+import { getViewerForFile } from './viewers/registry';
 
 const EMPTY_COMMENT_THREADS: CommentThread[] = [];
 const EMPTY_MERGED_CHUNKS: MergedChunk[] = [];
@@ -618,9 +621,24 @@ function App() {
   const hoveredFileIndexRef = useRef<number | null>(null);
   const getHoveredFileIndex = useCallback(() => hoveredFileIndexRef.current, []);
 
+  // Files shown whole have no hunks worth stepping through
+  const isShownWhole = useCallback(
+    (fileIndex: number) => {
+      const file = diffData?.files[fileIndex];
+      if (!file) return false;
+      if (getViewerForFile(file).id === 'markdown' && markdownPreviewMode === 'full-preview') {
+        return true;
+      }
+      const chunks = getMergedChunksForVersion(mergedChunksState, diffDataVersion, file.path);
+      return !!chunks && !chunksHaveHiddenLines(chunks) && chunksHaveExpandedLines(chunks);
+    },
+    [diffData, markdownPreviewMode, mergedChunksState, diffDataVersion],
+  );
+
   const { cursor, isHelpOpen, setIsHelpOpen, setCursorPosition, rememberFilePosition } =
     useKeyboardNavigation({
       files: navigableFiles,
+      isShownWhole,
       comments: normalizedThreads,
       viewMode: diffMode,
       reviewedFiles: viewedFiles,

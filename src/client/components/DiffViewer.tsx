@@ -12,6 +12,7 @@ import { type CursorPosition } from '../hooks/keyboardNavigation';
 import { type MergedChunk } from '../hooks/useExpandedLines';
 import { useFileLevelTokens } from '../hooks/useFileLevelTokens';
 import { isWholeFileHighlightExtension } from '../utils/languageDetection';
+import { chunksHaveExpandedLines, chunksHaveHiddenLines } from '../utils/mergedChunks';
 import { getViewerForFile } from '../viewers/registry';
 import type { DiffViewerBodyProps } from '../viewers/types';
 
@@ -228,13 +229,8 @@ export const DiffViewer = memo(function DiffViewer({
   const viewer = getViewerForFile(file);
   const hasBlobContent = baseCommitish !== 'stdin' && targetCommitish !== 'stdin';
   const canExpandHiddenLines = hasBlobContent && (viewer.canExpandHiddenLines?.(file) ?? false);
-  // -1 after the last hunk means the file length isn't known yet, so lines may still be hidden.
-  const hasHiddenLines = mergedChunks.some(
-    (chunk) => chunk.hiddenLinesBefore > 0 || chunk.hiddenLinesAfter !== 0,
-  );
-  const hasExpandedLines = mergedChunks.some((chunk) =>
-    chunk.lines.some((line) => 'isExpanded' in line && line.isExpanded),
-  );
+  const hasHiddenLines = chunksHaveHiddenLines(mergedChunks);
+  const hasExpandedLines = chunksHaveExpandedLines(mergedChunks);
   // The full preview renders the whole file, so there is nothing to expand.
   const isFullPreview = viewer.id === 'markdown' && markdownPreviewMode === 'full-preview';
   const fullFileToggle = useMemo(
