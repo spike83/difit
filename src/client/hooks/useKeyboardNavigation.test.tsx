@@ -409,6 +409,32 @@ describe('useKeyboardNavigation', () => {
     });
   });
 
+  describe('Chunk navigation in files shown whole', () => {
+    it('stops once per file, at its first line', async () => {
+      const user = userEvent.setup();
+
+      const { result } = renderHook(
+        () =>
+          useKeyboardNavigation({
+            files: mockFiles,
+            comments: [],
+            viewMode: 'unified',
+            onToggleReviewed: vi.fn(),
+            reviewedFiles: new Set<string>(),
+            isShownWhole: (fileIndex) => fileIndex === 1,
+          }),
+        { wrapper },
+      );
+
+      await user.keyboard('nn');
+      // file2's first change is on line 1; shown whole, n stops at line 0 instead
+      expect(result.current.cursor).toMatchObject({ fileIndex: 1, chunkIndex: 0, lineIndex: 0 });
+
+      await user.keyboard('p');
+      expect(result.current.cursor).toMatchObject({ fileIndex: 0, chunkIndex: 0, lineIndex: 0 });
+    });
+  });
+
   describe('First/last line (gg/G)', () => {
     it('jumps to the last line with G and back to the first with gg', async () => {
       const user = userEvent.setup();

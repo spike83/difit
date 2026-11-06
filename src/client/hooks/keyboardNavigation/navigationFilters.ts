@@ -32,6 +32,7 @@ export function createNavigationFilters(
   commentIndex: Map<string, CommentNavigationItem[]>,
   viewMode: ViewMode,
   reviewedFiles?: Set<string>,
+  isShownWhole?: (fileIndex: number) => boolean,
 ) {
   return {
     /**
@@ -54,6 +55,7 @@ export function createNavigationFilters(
      * Chunk navigation - navigates to the first line of each change chunk
      * Skips normal (unchanged) lines and finds boundaries between chunks
      * Skip chunks in reviewed/collapsed files
+     * A file shown whole (full preview, fully expanded) is one stop, at its first line
      */
     chunk: (pos: CursorPosition): boolean => {
       const file = files[pos.fileIndex];
@@ -61,6 +63,8 @@ export function createNavigationFilters(
 
       // Skip if file is reviewed/collapsed
       if (reviewedFiles?.has(file.path)) return false;
+
+      if (isShownWhole?.(pos.fileIndex)) return pos.chunkIndex === 0 && pos.lineIndex === 0;
 
       const line = file.chunks[pos.chunkIndex]?.lines[pos.lineIndex];
       if (!line || line.type === 'normal') return false;

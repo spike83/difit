@@ -48,6 +48,8 @@ export interface UseKeyboardNavigationProps {
   onToggleExpandAllLines?: (fileIndex: number) => void;
   isModalOpen?: boolean;
   getHoveredFileIndex?: () => number | null;
+  /** Files shown whole (full preview, fully expanded): n/p jump file by file there */
+  isShownWhole?: (fileIndex: number) => boolean;
 }
 
 /**

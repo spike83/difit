@@ -3,6 +3,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 
 import { DEFAULT_DIFF_VIEW_MODE } from '../../utils/diffMode';
 import { NAVIGATION_SELECTORS } from '../constants/navigation';
+import { getFileElementId } from '../utils/domUtils';
 import { getElementId, getCommentKey } from '../utils/navigation/domHelpers';
 import { fixSide, hasContentOnSide } from '../utils/navigation/lineHelpers';
 
@@ -37,6 +38,7 @@ export function useKeyboardNavigation({
   onPreviewModeChange,
   onToggleExpandAllLines,
   getHoveredFileIndex,
+  isShownWhole,
 }: UseKeyboardNavigationProps): UseKeyboardNavigationReturn {
   const [cursor, setCursor] = useState<CursorPosition | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -69,8 +71,8 @@ export function useKeyboardNavigation({
 
   // Create navigation filters
   const filters = useMemo(
-    () => createNavigationFilters(files, commentIndex, viewMode, reviewedFiles),
-    [files, commentIndex, viewMode, reviewedFiles],
+    () => createNavigationFilters(files, commentIndex, viewMode, reviewedFiles, isShownWhole),
+    [files, commentIndex, viewMode, reviewedFiles, isShownWhole],
   );
 
   // Core navigation function - finds next/prev position matching filter
@@ -94,12 +96,18 @@ export function useKeyboardNavigation({
         if (result.position) {
           setCursor(result.position);
           if (result.scrollTarget) {
-            scrollToElement(result.scrollTarget);
+            // Previews render no diff lines; scroll to the file instead.
+            const filePath = files[result.position.fileIndex]?.path;
+            scrollToElement(
+              document.getElementById(result.scrollTarget) || !filePath
+                ? result.scrollTarget
+                : getFileElementId(filePath),
+            );
           }
         }
       };
     },
-    [navigate, scrollToElement],
+    [navigate, scrollToElement, files],
   );
 
   // Navigation commands
