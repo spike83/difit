@@ -331,13 +331,30 @@ export function useKeyboardNavigation({
   useHotkeys('j, down', () => navigateToLine('next'), hotkeyOptions, [navigateToLine]);
   useHotkeys('k, up', () => navigateToLine('prev'), hotkeyOptions, [navigateToLine]);
 
-  // Chunk navigation
+  // Chunk navigation (n/N like vim search)
   useHotkeys('n', () => navigateToChunk('next'), hotkeyOptions, [navigateToChunk]);
-  useHotkeys('p', () => navigateToChunk('prev'), hotkeyOptions, [navigateToChunk]);
+  useHotkeys('p, shift+n', () => navigateToChunk('prev'), hotkeyOptions, [navigateToChunk]);
 
-  // Comment navigation
-  useHotkeys('shift+n', () => navigateToComment('next'), hotkeyOptions, [navigateToComment]);
-  useHotkeys('shift+p', () => navigateToComment('prev'), hotkeyOptions, [navigateToComment]);
+  // Comment navigation (N used to be next comment; it now mirrors n like vim)
+  useHotkeys('shift+j', () => navigateToComment('next'), hotkeyOptions, [navigateToComment]);
+  useHotkeys('shift+k, shift+p', () => navigateToComment('prev'), hotkeyOptions, [
+    navigateToComment,
+  ]);
+
+  // Half-page scrolling, keeping the cursor in view like vim
+  const scrollHalfPage = useCallback(
+    (direction: 1 | -1) => {
+      const scrollContainer = document.querySelector(
+        NAVIGATION_SELECTORS.SCROLL_CONTAINER,
+      ) as HTMLElement | null;
+      if (!scrollContainer) return;
+      scrollContainer.scrollBy({ top: (direction * scrollContainer.clientHeight) / 2 });
+      moveToCenterOfViewport();
+    },
+    [moveToCenterOfViewport],
+  );
+  useHotkeys('ctrl+d', () => scrollHalfPage(1), hotkeyOptions, [scrollHalfPage]);
+  useHotkeys('ctrl+u', () => scrollHalfPage(-1), hotkeyOptions, [scrollHalfPage]);
 
   // File navigation
   useHotkeys(']', () => navigateToFile('next'), { ...hotkeyOptions, useKey: true }, [
@@ -346,6 +363,50 @@ export function useKeyboardNavigation({
   useHotkeys('[', () => navigateToFile('prev'), { ...hotkeyOptions, useKey: true }, [
     navigateToFile,
   ]);
+
+  // Jump to the first line (gg) or the last line (G) of the diff
+  useHotkeys(
+    'g>g',
+    () => {
+      const position = files[0]?.chunks[0]?.lines[0]
+        ? fixSide(
+            {
+              fileIndex: 0,
+              chunkIndex: 0,
+              lineIndex: 0,
+              side: viewMode === 'split' ? 'left' : 'right',
+            },
+            files,
+          )
+        : null;
+      if (position) {
+        setCursor(position);
+        scrollToElement(getElementId(position, viewMode));
+      }
+    },
+    hotkeyOptions,
+    [files, viewMode, scrollToElement],
+  );
+  useHotkeys(
+    'shift+g',
+    () => {
+      for (let fileIndex = files.length - 1; fileIndex >= 0; fileIndex--) {
+        const chunks = files[fileIndex]?.chunks ?? [];
+        const chunkIndex = chunks.length - 1;
+        const lineIndex = (chunks[chunkIndex]?.lines.length ?? 0) - 1;
+        if (lineIndex < 0) continue;
+        const position = fixSide(
+          { fileIndex, chunkIndex, lineIndex, side: viewMode === 'split' ? 'left' : 'right' },
+          files,
+        );
+        setCursor(position);
+        scrollToElement(getElementId(position, viewMode));
+        return;
+      }
+    },
+    hotkeyOptions,
+    [files, viewMode, scrollToElement],
+  );
 
   // Jump to first/last file
   useHotkeys(
