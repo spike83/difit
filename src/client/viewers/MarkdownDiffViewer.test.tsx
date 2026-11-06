@@ -564,6 +564,7 @@ describe('MarkdownDiffViewer two-side fetch', () => {
     const preview = screen.getByTestId('markdown-unified-preview');
     fireEvent.mouseMove(within(preview).getByText('Some text.'));
     fireEvent.mouseDown(within(preview).getByRole('button', { name: 'Add comment on L3' }));
+    fireEvent.mouseUp(document);
     fireEvent.change(screen.getByPlaceholderText('Leave a comment...'), {
       target: { value: 'Clarify' },
     });

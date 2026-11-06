@@ -283,6 +283,12 @@ tr.drag-selected-last td::after {
   user-select: none;
 }
 
+/* Blocks covered by a gutter drag; colors match tr.drag-selected in the code diff */
+.md-drag-selected {
+  background-color: color-mix(in srgb, #dbeafe 30%, transparent);
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+
 .md-split-spacer {
   background-image: repeating-linear-gradient(
     135deg,

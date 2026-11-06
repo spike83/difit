@@ -66,6 +66,7 @@ const getCell = (container: HTMLElement, side: 'old' | 'new', text: string) => {
 const openGutterComment = (cell: HTMLElement, text: string) => {
   fireEvent.mouseMove(within(cell).getByText(text, { exact: false }));
   fireEvent.mouseDown(within(cell).getByRole('button', { name: /Add comment on/ }));
+  fireEvent.mouseUp(document);
 };
 
 describe('MarkdownSplitPreview', () => {
@@ -327,6 +328,34 @@ describe('MarkdownSplitPreview', () => {
     fireEvent.mouseUp(document.body);
 
     expect(screen.getByRole('button', { name: 'Comment on L3-L6' })).toBeInTheDocument();
+  });
+
+  it('comments on the whole range when dragging the gutter button over further blocks', () => {
+    const { container } = renderPreview({ layout: 'single' });
+    const heading = getCell(container, 'new', 'Guide');
+    const item = getCell(container, 'new', 'new item');
+
+    fireEvent.mouseMove(within(heading).getByText('Guide'));
+    fireEvent.mouseDown(within(heading).getByRole('button', { name: /Add comment on/ }));
+    fireEvent.mouseMove(within(item).getByText('new item'));
+    expect(heading.classList.contains('md-drag-selected')).toBe(true);
+    expect(getCell(container, 'new', 'red fox').classList.contains('md-drag-selected')).toBe(true);
+    fireEvent.mouseUp(document);
+
+    expect(screen.getByText('Comment on L1-L6')).toBeInTheDocument();
+    expect(item.classList.contains('md-drag-selected')).toBe(false);
+  });
+
+  it('keeps a gutter drag on the side it started on', () => {
+    const { container } = renderPreview();
+    const heading = getCell(container, 'new', 'Guide');
+
+    fireEvent.mouseMove(within(heading).getByText('Guide'));
+    fireEvent.mouseDown(within(heading).getByRole('button', { name: /Add comment on/ }));
+    fireEvent.mouseMove(within(getCell(container, 'old', 'brown')).getByText(/brown/));
+    fireEvent.mouseUp(document);
+
+    expect(screen.getByText('Comment on L1')).toBeInTheDocument();
   });
 
   it('collapses long unchanged runs until expanded', () => {
