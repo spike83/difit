@@ -72,6 +72,29 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                 </div>
                 <span className="text-github-text-secondary">Previous line</span>
               </div>
+              <div className="flex justify-between text-sm">
+                <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                  gg
+                </kbd>
+                <span className="text-github-text-secondary">First line</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                  G
+                </kbd>
+                <span className="text-github-text-secondary">Last line</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <div className="flex gap-2">
+                  <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                    Ctrl+d
+                  </kbd>
+                  <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                    Ctrl+u
+                  </kbd>
+                </div>
+                <span className="text-github-text-secondary">Half page down / up</span>
+              </div>
             </div>
           </section>
 
@@ -131,9 +154,14 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
-                  p
-                </kbd>
+                <div className="flex gap-2">
+                  <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                    p
+                  </kbd>
+                  <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                    N
+                  </kbd>
+                </div>
                 <span className="text-github-text-secondary">
                   Previous change chunk (added/deleted lines)
                 </span>
@@ -148,14 +176,19 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
             <div className="space-y-1">
               <div className="flex justify-between text-sm">
                 <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
-                  N
+                  J
                 </kbd>
                 <span className="text-github-text-secondary">Next comment</span>
               </div>
               <div className="flex justify-between text-sm">
-                <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
-                  P
-                </kbd>
+                <div className="flex gap-2">
+                  <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                    K
+                  </kbd>
+                  <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                    P
+                  </kbd>
+                </div>
                 <span className="text-github-text-secondary">Previous comment</span>
               </div>
             </div>

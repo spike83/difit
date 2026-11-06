@@ -382,9 +382,63 @@ describe('useKeyboardNavigation', () => {
 
       expect(result.current.cursor).not.toBeNull();
     });
+
+    it('goes to the previous chunk with N like p', async () => {
+      const user = userEvent.setup();
+      const render = () =>
+        renderHook(
+          () =>
+            useKeyboardNavigation({
+              files: mockFiles,
+              comments: [],
+              viewMode: 'unified',
+              onToggleReviewed: vi.fn(),
+              reviewedFiles: new Set<string>(),
+            }),
+          { wrapper },
+        );
+
+      const withP = render();
+      await user.keyboard('nnp');
+      const expected = withP.result.current.cursor;
+      withP.unmount();
+
+      const withN = render();
+      await user.keyboard('nn{Shift>}n{/Shift}');
+      expect(withN.result.current.cursor).toEqual(expected);
+    });
   });
 
-  describe('Comment Navigation (N/P)', () => {
+  describe('First/last line (gg/G)', () => {
+    it('jumps to the last line with G and back to the first with gg', async () => {
+      const user = userEvent.setup();
+
+      const { result } = renderHook(
+        () =>
+          useKeyboardNavigation({
+            files: mockFiles,
+            comments: [],
+            viewMode: 'unified',
+            onToggleReviewed: vi.fn(),
+            reviewedFiles: new Set<string>(),
+          }),
+        { wrapper },
+      );
+
+      await user.keyboard('{Shift>}g{/Shift}');
+      const lastChunks = mockFiles[1]!.chunks;
+      expect(result.current.cursor).toMatchObject({
+        fileIndex: 1,
+        chunkIndex: lastChunks.length - 1,
+        lineIndex: lastChunks[lastChunks.length - 1]!.lines.length - 1,
+      });
+
+      await user.keyboard('gg');
+      expect(result.current.cursor).toMatchObject({ fileIndex: 0, chunkIndex: 0, lineIndex: 0 });
+    });
+  });
+
+  describe('Comment Navigation (J/K)', () => {
     it('should navigate to next comment with Shift+N', async () => {
       const user = userEvent.setup();
       const comments = [
@@ -416,7 +470,7 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      await user.keyboard('{Shift>}n{/Shift}');
+      await user.keyboard('{Shift>}j{/Shift}');
 
       // Should navigate to the first comment
       expect(result.current.cursor).not.toBeNull();
@@ -441,7 +495,7 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      await user.keyboard('{Shift>}n{/Shift}');
+      await user.keyboard('{Shift>}j{/Shift}');
       expect(result.current.cursor).toEqual({
         fileIndex: 0,
         chunkIndex: 0,
@@ -449,7 +503,7 @@ describe('useKeyboardNavigation', () => {
         side: 'left',
       });
 
-      await user.keyboard('{Shift>}n{/Shift}');
+      await user.keyboard('{Shift>}j{/Shift}');
       expect(result.current.cursor).toEqual({
         fileIndex: 0,
         chunkIndex: 0,
@@ -490,8 +544,8 @@ describe('useKeyboardNavigation', () => {
       );
 
       // Navigate to second comment first
-      await user.keyboard('{Shift>}n{/Shift}');
-      await user.keyboard('{Shift>}n{/Shift}');
+      await user.keyboard('{Shift>}j{/Shift}');
+      await user.keyboard('{Shift>}j{/Shift}');
 
       // Then navigate back
       await user.keyboard('{Shift>}p{/Shift}');
@@ -518,9 +572,9 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      await user.keyboard('{Shift>}n{/Shift}');
-      await user.keyboard('{Shift>}n{/Shift}');
-      await user.keyboard('{Shift>}p{/Shift}');
+      await user.keyboard('{Shift>}j{/Shift}');
+      await user.keyboard('{Shift>}j{/Shift}');
+      await user.keyboard('{Shift>}k{/Shift}');
 
       expect(result.current.cursor).toEqual({
         fileIndex: 0,
