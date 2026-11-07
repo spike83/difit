@@ -19,7 +19,8 @@ interface UseLazyDiffRenderingReturn {
   ensureFileRendered: (filePath: string) => void;
   ensureFilesRenderedUpTo: (filePath: string) => void;
   registerLazyFileContainer: (filePath: string, node: HTMLDivElement | null) => void;
-  scrollFileIntoDiffContainer: (filePath: string) => void;
+  scrollFileIntoDiffContainer: (filePath: string, offset?: number) => void;
+  scrollToFileRestoringPosition: (filePath: string) => void;
   isFileScrolledPastContainerTop: (filePath: string) => boolean;
 }
 
@@ -35,6 +36,10 @@ export function useLazyDiffRendering({
   const generatedStatusCheckedRef = useRef<Set<string>>(new Set());
   const renderedRevisionKeyRef = useRef<string | null>(null);
   const scrollRequestIdRef = useRef(0);
+  // Where the reader was inside each file (px below its section top), so a jump
+  // back from the file tree resumes there instead of at the header
+  const fileScrollOffsetsRef = useRef<Map<string, number>>(new Map());
+  const topFilePathRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!diffData) {
@@ -59,7 +64,69 @@ export function useLazyDiffRendering({
     renderedFilePathsRef.current = nextPaths;
     setRenderedFilePaths(nextPaths);
     generatedStatusCheckedRef.current.clear();
+    fileScrollOffsetsRef.current.clear();
+    topFilePathRef.current = null;
   }, [diffData]);
+
+  // Track the file at the top of the diff container and how far into it the
+  // reader has scrolled
+  useEffect(() => {
+    const scrollContainer = diffScrollContainerRef.current;
+    if (!diffData || !scrollContainer) return;
+
+    const files = diffData.files;
+    let frame: number | null = null;
+
+    const update = () => {
+      frame = null;
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const probe = containerRect.top + 1;
+
+      // Sections are stacked in file order: binary search the one at the top
+      let low = 0;
+      let high = files.length - 1;
+      while (low <= high) {
+        const mid = (low + high) >> 1;
+        const path = files[mid]?.path;
+        const node = path ? document.getElementById(getFileElementId(path)) : null;
+        if (!path || !node) return;
+        const rect = node.getBoundingClientRect();
+        if (rect.bottom <= probe) {
+          low = mid + 1;
+        } else if (rect.top > probe) {
+          high = mid - 1;
+        } else {
+          const offsets = fileScrollOffsetsRef.current;
+          const previous = topFilePathRef.current;
+          // Scrolled off the end of the previous file into this one: it was read
+          // to the end, so a later jump back starts at its header again
+          if (previous && previous !== path && files[mid - 1]?.path === previous) {
+            const previousOffset = offsets.get(previous);
+            const previousNode = document.getElementById(getFileElementId(previous));
+            if (
+              previousOffset !== undefined &&
+              previousNode &&
+              previousOffset >= previousNode.offsetHeight - containerRect.height
+            ) {
+              offsets.delete(previous);
+            }
+          }
+          topFilePathRef.current = path;
+          offsets.set(path, probe - 1 - rect.top);
+          return;
+        }
+      }
+    };
+
+    const onScroll = () => {
+      if (frame === null) frame = requestAnimationFrame(update);
+    };
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      scrollContainer.removeEventListener('scroll', onScroll);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [diffData, diffScrollContainerRef]);
 
   const ensureFileRendered = useCallback((filePath: string) => {
     const node = lazyFileNodesRef.current.get(filePath);
@@ -192,7 +259,7 @@ export function useLazyDiffRendering({
   );
 
   const scrollFileIntoDiffContainer = useCallback(
-    (filePath: string) => {
+    (filePath: string, offset = 0) => {
       ensureFilesRenderedUpTo(filePath);
 
       const targetIndex = diffData?.files.findIndex((file) => file.path === filePath) ?? -1;
@@ -222,7 +289,12 @@ export function useLazyDiffRendering({
 
         const containerRect = scrollContainer.getBoundingClientRect();
         const targetRect = target.getBoundingClientRect();
-        const targetScrollTop = scrollContainer.scrollTop + (targetRect.top - containerRect.top);
+        // Keep the offset inside the file, which may have shrunk or collapsed
+        const maxOffset = Math.max(0, targetRect.height - containerRect.height);
+        const targetScrollTop =
+          scrollContainer.scrollTop +
+          (targetRect.top - containerRect.top) +
+          Math.min(offset, maxOffset);
 
         scrollContainer.scrollTo({
           top: Math.max(0, targetScrollTop),
@@ -264,6 +336,17 @@ export function useLazyDiffRendering({
       attemptScroll();
     },
     [diffData, diffScrollContainerRef, ensureFilesRenderedUpTo],
+  );
+
+  // Jump to a file where the reader left it; picking the file already at the
+  // top goes to its header
+  const scrollToFileRestoringPosition = useCallback(
+    (filePath: string) => {
+      const offset =
+        topFilePathRef.current === filePath ? 0 : (fileScrollOffsetsRef.current.get(filePath) ?? 0);
+      scrollFileIntoDiffContainer(filePath, offset);
+    },
+    [scrollFileIntoDiffContainer],
   );
 
   useEffect(() => {
@@ -327,6 +410,7 @@ export function useLazyDiffRendering({
     ensureFilesRenderedUpTo,
     registerLazyFileContainer,
     scrollFileIntoDiffContainer,
+    scrollToFileRestoringPosition,
     isFileScrolledPastContainerTop,
   };
 }

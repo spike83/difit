@@ -1,4 +1,5 @@
 import {
+  ArrowUpToLine,
   Check,
   ChevronDown,
   ChevronRight,
@@ -11,7 +12,7 @@ import {
   Square,
   UnfoldVertical,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { DiffFile } from '../../types/diff';
 import { copyTextToClipboard } from '../utils/clipboard';
@@ -77,9 +78,23 @@ export const DiffViewerHeader = ({
   onToggleReviewed,
 }: DiffViewerHeaderProps) => {
   const [isCopied, setIsCopied] = useState(false);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [isLongFile, setIsLongFile] = useState(false);
+
+  // A file taller than the window gets a button back to its top
+  useEffect(() => {
+    const section = headerRef.current?.closest<HTMLElement>('[data-file-path]');
+    if (!section || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setIsLongFile(section.offsetHeight > window.innerHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div
+      ref={headerRef}
       className={`bg-github-bg-secondary border-t-2 border-t-github-accent border-b border-github-border px-5 py-4 flex items-center justify-between flex-wrap gap-3 sticky top-0 z-10 ${
         isFocused ? 'keyboard-focused-file-header' : ''
       }`}
@@ -136,6 +151,19 @@ export const DiffViewerHeader = ({
       </div>
 
       <div className="flex items-center gap-3">
+        {isLongFile && !isCollapsed && (
+          <button
+            type="button"
+            className="bg-transparent border-none cursor-pointer px-1.5 py-1 rounded text-sm transition-all hover:bg-github-bg-tertiary text-github-text-secondary hover:text-github-text-primary"
+            onClick={() =>
+              headerRef.current?.closest('[data-file-path]')?.scrollIntoView({ block: 'start' })
+            }
+            title="Scroll to top of file"
+            aria-label="Scroll to top of file"
+          >
+            <ArrowUpToLine size={14} />
+          </button>
+        )}
         {isChangedSinceViewed && !isReviewed && (
           <span
             className="inline-flex h-6 items-center rounded-full border border-github-warning px-2.5 text-xs font-medium text-github-warning"

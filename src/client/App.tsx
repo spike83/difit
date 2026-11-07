@@ -361,6 +361,7 @@ function App() {
     ensureFilesRenderedUpTo,
     registerLazyFileContainer,
     scrollFileIntoDiffContainer,
+    scrollToFileRestoringPosition,
     isFileScrolledPastContainerTop,
   } = useLazyDiffRendering({
     diffData,
@@ -1507,7 +1508,7 @@ function App() {
               <div className="flex-1 overflow-y-auto">
                 <FileList
                   files={diffData.files}
-                  onScrollToFile={scrollFileIntoDiffContainer}
+                  onScrollToFile={scrollToFileRestoringPosition}
                   onFileSelected={isMobile ? handleMobileFileSelected : undefined}
                   comments={normalizedThreads}
                   reviewedFiles={viewedFiles}
