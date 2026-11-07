@@ -93,4 +93,24 @@ describe('DiffViewerHeader', () => {
 
     expect(screen.queryByLabelText('Expand all lines')).not.toBeInTheDocument();
   });
+
+  it('offers a jump to the top only for a file taller than the window', () => {
+    const renderIn = (height: number) => {
+      const section = document.createElement('div');
+      section.dataset.filePath = file.path;
+      Object.defineProperty(section, 'offsetHeight', { value: height });
+      section.scrollIntoView = vi.fn();
+      document.body.appendChild(section);
+      const view = render(<DiffViewerHeader {...baseProps} />, { container: section });
+      return { section, view };
+    };
+
+    const short = renderIn(window.innerHeight - 1);
+    expect(screen.queryByLabelText('Scroll to top of file')).not.toBeInTheDocument();
+    short.view.unmount();
+
+    const long = renderIn(window.innerHeight * 3);
+    fireEvent.click(screen.getByLabelText('Scroll to top of file'));
+    expect(long.section.scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+  });
 });
