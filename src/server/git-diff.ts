@@ -506,7 +506,7 @@ export class GitDiffParser {
     };
 
     // Parse chunks
-    const chunks = this.parseChunks(lines);
+    const { chunks, lineEndings } = this.parseChunks(lines);
 
     const { additions, deletions } = this.countLinesFromChunks(chunks);
     return {
@@ -515,6 +515,7 @@ export class GitDiffParser {
       deletions,
       chunks,
       isGenerated: isGeneratedFile(path).isGenerated,
+      ...(lineEndings && { lineEndings }),
     };
   }
 
@@ -533,11 +534,16 @@ export class GitDiffParser {
     return { additions, deletions };
   }
 
-  private parseChunks(lines: string[]): DiffChunk[] {
+  private parseChunks(lines: string[]): {
+    chunks: DiffChunk[];
+    lineEndings?: DiffFile['lineEndings'];
+  } {
     const chunks: DiffChunk[] = [];
     let currentChunk: DiffChunk | null = null;
     let oldLineNum = 0;
     let newLineNum = 0;
+    let crlfLines = 0;
+    let lfLines = 0;
 
     for (const line of lines) {
       if (line.startsWith('@@')) {
@@ -569,11 +575,14 @@ export class GitDiffParser {
         (line.startsWith('+') || line.startsWith('-') || line.startsWith(' '))
       ) {
         const type = line.startsWith('+') ? 'add' : line.startsWith('-') ? 'delete' : 'normal';
+        const isCrlf = line.endsWith('\r');
+        if (isCrlf) crlfLines++;
+        else lfLines++;
 
         const diffLine: DiffLine = {
           type,
-          // CRLF files keep a trailing \r, which the browser renders as a line break
-          content: line.slice(1).replace(/\r$/, ''),
+          // The browser renders a trailing \r as a line break; lineEndings reports it instead
+          content: isCrlf ? line.slice(1, -1) : line.slice(1),
           oldLineNumber: type !== 'add' ? oldLineNum : undefined,
           newLineNumber: type !== 'delete' ? newLineNum : undefined,
         };
@@ -589,7 +598,8 @@ export class GitDiffParser {
       chunks.push(currentChunk);
     }
 
-    return chunks;
+    const lineEndings = crlfLines === 0 ? undefined : lfLines === 0 ? 'crlf' : 'mixed';
+    return { chunks, lineEndings };
   }
 
   async validateCommit(commitish: string): Promise<boolean> {

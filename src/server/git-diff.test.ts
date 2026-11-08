@@ -890,9 +890,30 @@ index abc123..def456 100644
         '',
       ].join('\n');
 
-      const lines = parser.parseStdinDiff(diffContent).files[0].chunks[0].lines;
+      const file = parser.parseStdinDiff(diffContent).files[0];
 
-      expect(lines.map((line) => line.content)).toEqual(['keep', 'old', 'new']);
+      expect(file.chunks[0].lines.map((line) => line.content)).toEqual(['keep', 'old', 'new']);
+      expect(file.lineEndings).toBe('crlf');
+    });
+
+    it('reports mixed line endings and leaves LF files unmarked', () => {
+      const diffFor = (path: string, added: string) =>
+        [
+          `diff --git a/${path} b/${path}`,
+          'index abc123..def456 100644',
+          `--- a/${path}`,
+          `+++ b/${path}`,
+          '@@ -1 +1 @@',
+          '-same\r',
+          `+${added}`,
+          '',
+        ].join('\n');
+
+      const [mixed] = parser.parseStdinDiff(diffFor('m.txt', 'same')).files;
+      const [lf] = parser.parseStdinDiff(diffFor('l.txt', 'same').replace('\r', '')).files;
+
+      expect(mixed.lineEndings).toBe('mixed');
+      expect(lf.lineEndings).toBeUndefined();
     });
 
     it('should parse multiple files', async () => {
