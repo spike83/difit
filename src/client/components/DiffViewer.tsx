@@ -442,7 +442,7 @@ export const DiffViewer = memo(function DiffViewer({
 
       {!isCollapsed && (
         <FileLevelTokensProvider value={fileLevelTokens}>
-          <div className="overflow-y-auto">
+          <div className="overflow-x-auto overflow-y-hidden">
             <ViewerComponent {...viewerProps} />
           </div>
         </FileLevelTokensProvider>

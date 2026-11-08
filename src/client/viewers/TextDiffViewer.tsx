@@ -108,7 +108,7 @@ export function TextDiffViewer({
                 <CopyContentButton
                   getText={() => chunkCopyText}
                   title="Copy new code in hunk"
-                  className="absolute top-1 right-2 z-[5] bg-github-bg-secondary opacity-0 group-hover/chunk:opacity-100 focus:opacity-100"
+                  className="absolute top-0 right-2 z-[5] py-0.5! bg-github-bg-secondary opacity-0 group-hover/chunk:opacity-100 focus:opacity-100"
                 />
               )}
               <DiffChunk

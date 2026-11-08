@@ -36,7 +36,7 @@ function tokenizeContent(content: string, language: string): Token[][] | null {
   const grammar = Prism.languages[language];
   if (!grammar) return null;
   try {
-    const raw = Prism.tokenize(content, grammar);
+    const raw = Prism.tokenize(content.replace(/\r\n/g, '\n'), grammar);
     return normalizeTokens(raw);
   } catch {
     return null;
