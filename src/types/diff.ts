@@ -6,6 +6,8 @@ export interface DiffFile {
   deletions: number;
   chunks: DiffChunk[];
   isGenerated?: boolean;
+  /** Set when diff lines end in CRLF: all of them, or only some ('mixed') */
+  lineEndings?: 'crlf' | 'mixed';
 }
 
 export interface DiffChunk {

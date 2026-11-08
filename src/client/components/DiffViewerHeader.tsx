@@ -164,6 +164,18 @@ export const DiffViewerHeader = ({
             <ArrowUpToLine size={14} />
           </button>
         )}
+        {file.lineEndings && (
+          <span
+            className="inline-flex h-6 items-center rounded-full border border-github-warning px-2.5 text-xs font-medium text-github-warning"
+            title={
+              file.lineEndings === 'crlf'
+                ? 'Lines end in CRLF (Windows line endings)'
+                : 'Lines end in a mix of CRLF and LF; line-ending-only changes look identical here'
+            }
+          >
+            {file.lineEndings === 'crlf' ? 'CRLF' : 'Mixed line endings'}
+          </span>
+        )}
         {isChangedSinceViewed && !isReviewed && (
           <span
             className="inline-flex h-6 items-center rounded-full border border-github-warning px-2.5 text-xs font-medium text-github-warning"

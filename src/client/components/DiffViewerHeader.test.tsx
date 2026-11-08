@@ -33,6 +33,17 @@ describe('DiffViewerHeader', () => {
     expect(badge).toHaveAttribute('title', 'Updated since you last viewed this file');
   });
 
+  it('warns about CRLF and mixed line endings', () => {
+    const { rerender } = render(<DiffViewerHeader {...baseProps} />);
+    expect(screen.queryByText('CRLF')).not.toBeInTheDocument();
+
+    rerender(<DiffViewerHeader {...baseProps} file={{ ...file, lineEndings: 'crlf' }} />);
+    expect(screen.getByText('CRLF')).toBeInTheDocument();
+
+    rerender(<DiffViewerHeader {...baseProps} file={{ ...file, lineEndings: 'mixed' }} />);
+    expect(screen.getByText('Mixed line endings')).toBeInTheDocument();
+  });
+
   it('hides the "Updated" badge once the file is marked as reviewed', () => {
     render(<DiffViewerHeader {...baseProps} isChangedSinceViewed isReviewed />);
 
