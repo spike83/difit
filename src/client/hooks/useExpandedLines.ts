@@ -60,7 +60,7 @@ async function fetchFileContent(
   }
 
   const text = await response.text();
-  const lines = text.split('\n');
+  const lines = text.split(/\r?\n/);
   // Remove last empty line if file doesn't end with newline
   if (lines.length > 0 && lines[lines.length - 1] === '') {
     lines.pop();

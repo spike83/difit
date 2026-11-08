@@ -877,6 +877,24 @@ index abc123..def456 100644
       expect(result.files[0].chunks[0].lines).toHaveLength(4);
     });
 
+    it('drops the carriage return of CRLF file lines', () => {
+      const diffContent = [
+        'diff --git a/a.conf b/a.conf',
+        'index abc123..def456 100644',
+        '--- a/a.conf',
+        '+++ b/a.conf',
+        '@@ -1,2 +1,2 @@',
+        ' keep\r',
+        '-old\r',
+        '+new\r',
+        '',
+      ].join('\n');
+
+      const lines = parser.parseStdinDiff(diffContent).files[0].chunks[0].lines;
+
+      expect(lines.map((line) => line.content)).toEqual(['keep', 'old', 'new']);
+    });
+
     it('should parse multiple files', async () => {
       const diffContent = `diff --git a/file1.txt b/file1.txt
 index abc123..def456 100644

@@ -572,7 +572,8 @@ export class GitDiffParser {
 
         const diffLine: DiffLine = {
           type,
-          content: line.slice(1),
+          // CRLF files keep a trailing \r, which the browser renders as a line break
+          content: line.slice(1).replace(/\r$/, ''),
           oldLineNumber: type !== 'add' ? oldLineNum : undefined,
           newLineNumber: type !== 'delete' ? newLineNum : undefined,
         };
