@@ -1,13 +1,18 @@
 import type { DiffFile } from '../../types/diff';
+import { getFileExtension } from '../../utils/fileUtils';
 import { isImageFile } from '../utils/imageUtils';
 import { isMarkdownFile } from '../utils/markdownUtils';
 import { isNotebookFile } from '../utils/notebookUtils';
 
+import { AsciidocDiffViewer } from './AsciidocDiffViewer';
 import { ImageDiffViewer } from './ImageDiffViewer';
 import { MarkdownDiffViewer } from './MarkdownDiffViewer';
 import { NotebookDiffViewer } from './NotebookDiffViewer';
 import { TextDiffViewer } from './TextDiffViewer';
 import type { DiffViewerRegistration } from './types';
+
+const isAsciidocFile = (path: string) =>
+  ['adoc', 'asciidoc', 'asc'].includes(getFileExtension(path) ?? '');
 
 const viewers: DiffViewerRegistration[] = [
   {
@@ -20,6 +25,12 @@ const viewers: DiffViewerRegistration[] = [
     id: 'markdown',
     match: (file) => isMarkdownFile(file.path),
     Component: MarkdownDiffViewer,
+    canExpandHiddenLines: (file) => file.status !== 'added' && file.status !== 'deleted',
+  },
+  {
+    id: 'asciidoc',
+    match: (file) => isAsciidocFile(file.path),
+    Component: AsciidocDiffViewer,
     canExpandHiddenLines: (file) => file.status !== 'added' && file.status !== 'deleted',
   },
   {

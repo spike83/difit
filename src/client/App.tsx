@@ -627,7 +627,12 @@ function App() {
     (fileIndex: number) => {
       const file = diffData?.files[fileIndex];
       if (!file) return false;
-      if (getViewerForFile(file).id === 'markdown' && markdownPreviewMode === 'full-preview') {
+      const viewerId = getViewerForFile(file).id;
+      if (viewerId === 'markdown' && markdownPreviewMode === 'full-preview') {
+        return true;
+      }
+      // Every AsciiDoc preview renders the whole document
+      if (viewerId === 'asciidoc' && markdownPreviewMode !== 'diff') {
         return true;
       }
       const chunks = getMergedChunksForVersion(mergedChunksState, diffDataVersion, file.path);
