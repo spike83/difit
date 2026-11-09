@@ -10,7 +10,8 @@ import { isSafeUrl } from '../utils/markdownUtils';
 
 import { getMarkdownComponents } from './markdownComponents';
 import { MarkdownRichCopyButton } from './MarkdownRichCopyButton';
-import { MarkdownSplitPreview } from './MarkdownSplitPreview';
+import { AsciidocSplitPreview, type AsciidocSources } from './AsciidocSplitPreview';
+import { MarkdownSplitPreview, type MarkdownSplitPreviewProps } from './MarkdownSplitPreview';
 import { DEFAULT_PREVIEW_MODE, PreviewModeTabs, type PreviewMode } from './PreviewModeTabs';
 import { TextDiffViewer } from './TextDiffViewer';
 import type { DiffViewerBodyProps } from './types';
@@ -369,7 +370,10 @@ const MarkdownDiffPreview = ({
   );
 };
 
-export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
+export function MarkdownDiffViewer({
+  format = 'markdown',
+  ...props
+}: DiffViewerBodyProps & { format?: 'markdown' | 'asciidoc' }) {
   const { file, baseCommitish, targetCommitish, mergedChunks, syntaxTheme, diffVersion } = props;
   // App owns the remembered mode when it passes a change handler; otherwise the passed
   // mode is only the starting tab.
@@ -593,6 +597,19 @@ export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
     baseContent: file.status === 'added' ? null : contents.base,
     targetContent: file.status === 'deleted' ? null : contents.target,
   };
+  const asciidocSources = useMemo<AsciidocSources>(
+    () => ({
+      base: { path: file.oldPath || file.path, ref: baseCommitish },
+      target: { path: file.path, ref: targetCommitish },
+    }),
+    [file.oldPath, file.path, baseCommitish, targetCommitish],
+  );
+  const renderPreview = (previewProps: MarkdownSplitPreviewProps) =>
+    format === 'asciidoc' ? (
+      <AsciidocSplitPreview {...previewProps} sources={asciidocSources} />
+    ) : (
+      <MarkdownSplitPreview {...previewProps} />
+    );
 
   return (
     <div className="bg-github-bg-primary">
@@ -603,21 +620,22 @@ export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
           hasSplitPreview={hasSplitPreview}
           onModeChange={handleModeChange}
         />
-        {effectiveMode !== 'diff' && hasFullPreview && fullPreviewContent !== null && (
-          <MarkdownRichCopyButton markdown={fullPreviewContent} />
-        )}
+        {format === 'markdown' &&
+          effectiveMode !== 'diff' &&
+          hasFullPreview &&
+          fullPreviewContent !== null && <MarkdownRichCopyButton markdown={fullPreviewContent} />}
       </div>
 
       {effectiveMode === 'diff' && <TextDiffViewer {...props} />}
 
       {effectiveMode === 'split-preview' &&
         (isSplitPreviewReady ? (
-          <MarkdownSplitPreview
-            {...commentProps}
-            {...splitContents}
-            baseLabel={baseCommitish}
-            targetLabel={targetCommitish}
-          />
+          renderPreview({
+            ...commentProps,
+            ...splitContents,
+            baseLabel: baseCommitish,
+            targetLabel: targetCommitish,
+          })
         ) : (
           <div className="p-4 text-sm text-github-text-muted">Loading preview...</div>
         ))}
@@ -627,7 +645,7 @@ export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
           {partialFailureLabel && (
             <div className="px-4 pt-3 text-sm text-github-text-muted">{partialFailureLabel}</div>
           )}
-          <MarkdownSplitPreview {...commentProps} {...splitContents} layout="unified" />
+          {renderPreview({ ...commentProps, ...splitContents, layout: 'unified' })}
         </>
       )}
 
@@ -635,17 +653,24 @@ export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
         <div className="p-4 text-sm text-github-text-muted">Loading preview...</div>
       )}
 
-      {effectiveMode === 'diff-preview' && patchContents && (
-        <MarkdownSplitPreview
-          {...commentProps}
-          baseContent={file.status === 'added' ? null : patchContents.base}
-          targetContent={file.status === 'deleted' ? null : patchContents.target}
-          layout="unified"
-        />
-      )}
-
-      {/* When a fetch fails the blocks cannot be aligned: render the hunks. */}
       {effectiveMode === 'diff-preview' &&
+        patchContents &&
+        renderPreview({
+          ...commentProps,
+          baseContent: file.status === 'added' ? null : patchContents.base,
+          targetContent: file.status === 'deleted' ? null : patchContents.target,
+          layout: 'unified',
+        })}
+
+      {/* When a fetch fails the blocks cannot be aligned: render the hunks (as code for
+          AsciiDoc, which has no hunk renderer). */}
+      {effectiveMode === 'diff-preview' &&
+        format === 'asciidoc' &&
+        !patchContents &&
+        !isSplitPreviewReady &&
+        !isPreviewPending && <TextDiffViewer {...props} />}
+      {effectiveMode === 'diff-preview' &&
+        format === 'markdown' &&
         !patchContents &&
         !isSplitPreviewReady &&
         !isPreviewPending && (
@@ -671,14 +696,15 @@ export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
           {partialFailureLabel && (
             <div className="text-sm text-github-text-muted mb-3">{partialFailureLabel}</div>
           )}
-          {!isPreviewLoading && !previewError && fullPreviewContent !== null && (
-            <MarkdownSplitPreview
-              {...commentProps}
-              baseContent={file.status === 'deleted' ? fullPreviewContent : null}
-              targetContent={file.status === 'deleted' ? null : fullPreviewContent}
-              layout="single"
-            />
-          )}
+          {!isPreviewLoading &&
+            !previewError &&
+            fullPreviewContent !== null &&
+            renderPreview({
+              ...commentProps,
+              baseContent: file.status === 'deleted' ? fullPreviewContent : null,
+              targetContent: file.status === 'deleted' ? null : fullPreviewContent,
+              layout: 'single',
+            })}
           {!isPreviewLoading && !previewError && fullPreviewContent === null && (
             <div className="text-sm text-github-text-muted">Preview unavailable.</div>
           )}

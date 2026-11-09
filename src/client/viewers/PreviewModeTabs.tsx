@@ -14,7 +14,6 @@ type PreviewModeTabsProps = {
   mode: PreviewMode;
   hasFullPreview: boolean;
   hasSplitPreview: boolean;
-  hasDiffPreview?: boolean;
   onModeChange: (mode: PreviewMode) => void;
 };
 
@@ -49,7 +48,6 @@ export const PreviewModeTabs = ({
   mode,
   hasFullPreview,
   hasSplitPreview,
-  hasDiffPreview = true,
   onModeChange,
 }: PreviewModeTabsProps) => (
   <div className="flex items-center gap-1.5">
@@ -68,14 +66,12 @@ export const PreviewModeTabs = ({
         onClick={() => onModeChange('split-preview')}
       />
     )}
-    {hasDiffPreview && (
-      <TabButton
-        isActive={mode === 'diff-preview'}
-        title="Diff Preview"
-        icon={<Eye size={14} />}
-        onClick={() => onModeChange('diff-preview')}
-      />
-    )}
+    <TabButton
+      isActive={mode === 'diff-preview'}
+      title="Diff Preview"
+      icon={<Eye size={14} />}
+      onClick={() => onModeChange('diff-preview')}
+    />
     {hasFullPreview && (
       <TabButton
         isActive={mode === 'full-preview'}
