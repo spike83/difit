@@ -1,7 +1,9 @@
 import { ChevronsUpDown, MessageSquarePlus } from 'lucide-react';
 import React, {
+  createContext,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -17,6 +19,7 @@ import { CommentButton } from '../components/CommentButton';
 import { CommentForm } from '../components/CommentForm';
 import { CommentThreadCard } from '../components/CommentThreadCard';
 import { FrontmatterTable } from '../components/FrontmatterTable';
+import type { PreparedBlocks } from '../utils/asciidoc';
 import { extractFrontmatter } from '../utils/frontmatter';
 import { computeFrontmatterDiff } from '../utils/frontmatterDiff';
 import {
@@ -77,7 +80,12 @@ export type MarkdownSplitPreviewProps = Pick<
   targetLabel?: string;
   /** single shows targetContent, or baseContent when targetContent is null. */
   layout?: MarkdownPreviewLayout;
+  /** Blocks parsed and rendered elsewhere (AsciiDoc), instead of parsing the markdown. */
+  blocks?: PreparedBlocks;
 };
+
+// The HTML of blocks rendered ahead of time, by block.
+const BlockHtmlContext = createContext<Map<MarkdownBlock, string> | null>(null);
 
 const NON_RENDERED_KINDS = new Set<MarkdownBlock['kind']>(['html', 'definition']);
 const DEFINITION_KINDS = new Set<MarkdownBlock['kind']>(['definition', 'footnoteDefinition']);
@@ -188,10 +196,21 @@ const BlockContent = memo(function BlockContent({
     }),
     [syntaxTheme, block.startLine],
   );
+  const html = useContext(BlockHtmlContext)?.get(block);
   const lineAttributes = {
     'data-md-line-start': block.startLine,
     'data-md-line-end': block.endLine,
   };
+
+  if (html !== undefined) {
+    return (
+      <div
+        className="asciidoc-preview"
+        {...lineAttributes}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
 
   if (block.kind === 'frontmatter' && frontmatterDiff) {
     const entries = computeFrontmatterDiff(
@@ -514,6 +533,7 @@ export function MarkdownSplitPreview({
   baseLabel,
   targetLabel,
   layout = 'split',
+  blocks,
   threads,
   showAuthorBadges,
   syntaxTheme,
@@ -530,8 +550,14 @@ export function MarkdownSplitPreview({
   const selectingSideRef = useRef<DiffSide | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(() => new Set());
 
-  const oldBlocks = useMemo(() => parseMarkdownBlocks(baseContent ?? ''), [baseContent]);
-  const newBlocks = useMemo(() => parseMarkdownBlocks(targetContent ?? ''), [targetContent]);
+  const oldBlocks = useMemo(
+    () => blocks?.old ?? parseMarkdownBlocks(baseContent ?? ''),
+    [blocks, baseContent],
+  );
+  const newBlocks = useMemo(
+    () => blocks?.new ?? parseMarkdownBlocks(targetContent ?? ''),
+    [blocks, targetContent],
+  );
   const oldLines = useMemo(() => splitLines(baseContent), [baseContent]);
   const newLines = useMemo(() => splitLines(targetContent), [targetContent]);
   const oldDefinitions = useMemo(
@@ -837,115 +863,122 @@ export function MarkdownSplitPreview({
     setExpandedSections((current) => new Set(current).add(start));
 
   return (
-    <div
-      ref={containerRef}
-      className="relative"
-      data-testid={`markdown-${layout}-preview`}
-      onMouseDown={handleMouseDown}
-    >
-      {layout === 'split' && (
-        <div className="grid grid-cols-2 border-b border-github-border bg-github-bg-secondary text-xs text-github-text-secondary">
-          <div className="border-r border-github-border px-4 py-2">
-            <span className="font-semibold text-github-text-primary">Before</span>
-            {baseContent === null ? (
-              <span className="ml-2">file does not exist</span>
-            ) : (
-              baseLabel && <code className="ml-2 font-mono">{baseLabel}</code>
-            )}
+    <BlockHtmlContext.Provider value={blocks?.html ?? null}>
+      <div
+        ref={containerRef}
+        className="relative"
+        data-testid={`markdown-${layout}-preview`}
+        onMouseDown={handleMouseDown}
+      >
+        {layout === 'split' && (
+          <div className="grid grid-cols-2 border-b border-github-border bg-github-bg-secondary text-xs text-github-text-secondary">
+            <div className="border-r border-github-border px-4 py-2">
+              <span className="font-semibold text-github-text-primary">Before</span>
+              {baseContent === null ? (
+                <span className="ml-2">file does not exist</span>
+              ) : (
+                baseLabel && <code className="ml-2 font-mono">{baseLabel}</code>
+              )}
+            </div>
+            <div className="px-4 py-2">
+              <span className="font-semibold text-github-text-primary">After</span>
+              {targetContent === null ? (
+                <span className="ml-2">file deleted</span>
+              ) : (
+                targetLabel && <code className="ml-2 font-mono">{targetLabel}</code>
+              )}
+            </div>
           </div>
-          <div className="px-4 py-2">
-            <span className="font-semibold text-github-text-primary">After</span>
-            {targetContent === null ? (
-              <span className="ml-2">file deleted</span>
-            ) : (
-              targetLabel && <code className="ml-2 font-mono">{targetLabel}</code>
-            )}
+        )}
+
+        {!hasRenderedChanges && rows.length > 0 && (
+          <div className="px-4 py-2 text-sm text-github-text-muted">
+            No rendered changes — the diff only touches blank lines or whitespace.
           </div>
-        </div>
-      )}
+        )}
 
-      {!hasRenderedChanges && rows.length > 0 && (
-        <div className="px-4 py-2 text-sm text-github-text-muted">
-          No rendered changes — the diff only touches blank lines or whitespace.
-        </div>
-      )}
+        {unplaced.length > 0 && (
+          <div className="border-b border-github-border bg-github-bg-secondary">
+            {unplaced.map(renderThreadCard)}
+          </div>
+        )}
 
-      {unplaced.length > 0 && (
-        <div className="border-b border-github-border bg-github-bg-secondary">
-          {unplaced.map(renderThreadCard)}
-        </div>
-      )}
-
-      {items.map((item) => {
-        if (item.kind === 'collapsed') {
-          const hiddenCount = item.end - item.start;
-          return (
-            <button
-              key={`collapsed-${item.start}`}
-              type="button"
-              className="flex w-full items-center justify-center gap-2 border-b border-github-border bg-github-bg-secondary py-1.5 text-xs text-github-text-secondary hover:bg-github-bg-tertiary hover:text-github-text-primary"
-              onClick={() => expandSection(item.start)}
-            >
-              <ChevronsUpDown size={14} />
-              Show {hiddenCount} unchanged {hiddenCount === 1 ? 'block' : 'blocks'}
-            </button>
-          );
-        }
-
-        const row = rows[item.index];
-        if (!row) return null;
-        const hasComments = threadsByRow.has(item.index) || commentTarget?.rowIndex === item.index;
-        return (
-          <React.Fragment key={`row-${item.index}`}>
-            <SplitRow
-              row={row}
-              rowIndex={item.index}
-              layout={layout}
-              singleSide={singleSide}
-              oldDefinitions={oldDefinitions}
-              newDefinitions={newDefinitions}
-              syntaxTheme={syntaxTheme}
-              dragSelectedSide={selectedSide(row, dragRange)}
-              commentSelectedSide={dragRange ? null : selectedSide(row, commentTarget)}
-              onStartDrag={handleStartDrag}
-              onHoverTarget={handleHoverTarget}
-            />
-            {hasComments && (
-              <div
-                className={`${layout === 'split' ? 'grid grid-cols-2' : ''} border-b border-github-border bg-github-bg-secondary`}
+        {items.map((item) => {
+          if (item.kind === 'collapsed') {
+            const hiddenCount = item.end - item.start;
+            return (
+              <button
+                key={`collapsed-${item.start}`}
+                type="button"
+                className="flex w-full items-center justify-center gap-2 border-b border-github-border bg-github-bg-secondary py-1.5 text-xs text-github-text-secondary hover:bg-github-bg-tertiary hover:text-github-text-primary"
+                onClick={() => expandSection(item.start)}
               >
-                {(layout === 'single' ? [singleSide] : (['old', 'new'] as const)).map((side) =>
-                  renderSideComments(item.index, side),
-                )}
-              </div>
-            )}
-          </React.Fragment>
-        );
-      })}
+                <ChevronsUpDown size={14} />
+                Show {hiddenCount} unchanged {hiddenCount === 1 ? 'block' : 'blocks'}
+              </button>
+            );
+          }
 
-      {selectionTarget && (
-        <button
-          type="button"
-          data-md-selection-comment=""
-          className="absolute z-20 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-lg"
-          style={{ ...selectionButtonStyle, top: selectionTarget.top, left: selectionTarget.left }}
-          onMouseDown={(event) => event.preventDefault()}
-          onMouseUp={(event) => event.stopPropagation()}
-          onClick={() => {
-            handleStartComment({
-              side: selectionTarget.side,
-              rowIndex: selectionTarget.rowIndex,
-              start: selectionTarget.start,
-              end: selectionTarget.end,
-              initialBody: quoteSelection(selectionTarget.quote),
-            });
-            window.getSelection()?.removeAllRanges();
-          }}
-        >
-          <MessageSquarePlus size={14} />
-          Comment on {formatLineRange(selectionTarget)}
-        </button>
-      )}
-    </div>
+          const row = rows[item.index];
+          if (!row) return null;
+          const hasComments =
+            threadsByRow.has(item.index) || commentTarget?.rowIndex === item.index;
+          return (
+            <React.Fragment key={`row-${item.index}`}>
+              <SplitRow
+                row={row}
+                rowIndex={item.index}
+                layout={layout}
+                singleSide={singleSide}
+                oldDefinitions={oldDefinitions}
+                newDefinitions={newDefinitions}
+                syntaxTheme={syntaxTheme}
+                dragSelectedSide={selectedSide(row, dragRange)}
+                commentSelectedSide={dragRange ? null : selectedSide(row, commentTarget)}
+                onStartDrag={handleStartDrag}
+                onHoverTarget={handleHoverTarget}
+              />
+              {hasComments && (
+                <div
+                  className={`${layout === 'split' ? 'grid grid-cols-2' : ''} border-b border-github-border bg-github-bg-secondary`}
+                >
+                  {(layout === 'single' ? [singleSide] : (['old', 'new'] as const)).map((side) =>
+                    renderSideComments(item.index, side),
+                  )}
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
+
+        {selectionTarget && (
+          <button
+            type="button"
+            data-md-selection-comment=""
+            className="absolute z-20 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-lg"
+            style={{
+              ...selectionButtonStyle,
+              top: selectionTarget.top,
+              left: selectionTarget.left,
+            }}
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseUp={(event) => event.stopPropagation()}
+            onClick={() => {
+              handleStartComment({
+                side: selectionTarget.side,
+                rowIndex: selectionTarget.rowIndex,
+                start: selectionTarget.start,
+                end: selectionTarget.end,
+                initialBody: quoteSelection(selectionTarget.quote),
+              });
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            <MessageSquarePlus size={14} />
+            Comment on {formatLineRange(selectionTarget)}
+          </button>
+        )}
+      </div>
+    </BlockHtmlContext.Provider>
   );
 }

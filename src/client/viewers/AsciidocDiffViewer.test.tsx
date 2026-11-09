@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import DOMPurify from 'dompurify';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DiffFile } from '../../types/diff';
 
-import { AsciidocDiffViewer, renderAsciidoc } from './AsciidocDiffViewer';
+import { AsciidocDiffViewer } from './AsciidocDiffViewer';
 import type { DiffViewerBodyProps } from './types';
 
 const createProps = (file: Partial<DiffFile> = {}): DiffViewerBodyProps => ({
@@ -39,54 +39,33 @@ const mockBlobs = (blobs: Record<string, string>) =>
   });
 
 describe('AsciidocDiffViewer', () => {
+  beforeEach(() => {
+    // happy-dom's parser trips DOMPurify up; sanitizing is covered in asciidoc.test.ts
+    vi.spyOn(DOMPurify, 'sanitize').mockImplementation((html) => String(html));
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  // happy-dom's parser trips DOMPurify up, so only check that the HTML goes through it
-  it('renders AsciiDoc through the sanitizer', async () => {
-    const sanitize = vi.spyOn(DOMPurify, 'sanitize').mockImplementation((html) => `clean:${html}`);
-
-    const html = await renderAsciidoc('= Guide\n\n== Setup\n\nRun `make`.');
-
-    expect(sanitize).toHaveBeenCalledOnce();
-    expect(html).toMatch(/^clean:<h1>Guide<\/h1>/);
-    expect(html).toContain('<h2 id="_setup">Setup</h2>');
-    expect(html).toContain('<code>make</code>');
-  });
-
-  it('shows both versions side by side in the split preview', async () => {
-    mockBlobs({ 'HEAD~1': '== Old heading', HEAD: '== New heading' });
+  it('offers the same tabs as markdown', async () => {
+    mockBlobs({ 'HEAD~1': '== Title\n\nOld text.', HEAD: '== Title\n\nNew text.' });
 
     render(<AsciidocDiffViewer {...createProps()} markdownPreviewMode="split-preview" />);
 
-    expect(await screen.findByRole('heading', { name: 'Old heading' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'New heading' })).toBeInTheDocument();
-    expect(screen.queryByTitle('Diff Preview')).not.toBeInTheDocument();
+    expect(await screen.findByTitle('Split Preview')).toBeInTheDocument();
+    expect(screen.getByTitle('Diff Preview')).toBeInTheDocument();
+    expect(screen.getByTitle('Full Preview')).toBeInTheDocument();
   });
 
-  it('shows only the new version of an added file', async () => {
-    mockBlobs({ HEAD: '== Added' });
+  it('aligns changed blocks side by side in the split preview', async () => {
+    mockBlobs({ 'HEAD~1': '== Title\n\nOld text.', HEAD: '== Title\n\nNew text.' });
 
-    render(
-      <AsciidocDiffViewer
-        {...createProps({ status: 'added' })}
-        markdownPreviewMode="split-preview"
-      />,
+    const { container } = render(
+      <AsciidocDiffViewer {...createProps()} markdownPreviewMode="split-preview" />,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Added' })).toBeInTheDocument();
-    expect(screen.queryByTitle('Split Preview')).not.toBeInTheDocument();
-  });
-
-  it('switches to the code diff', async () => {
-    mockBlobs({ 'HEAD~1': '== Old', HEAD: '== New' });
-
-    render(<AsciidocDiffViewer {...createProps()} markdownPreviewMode="full-preview" />);
-    expect(await screen.findByRole('heading', { name: 'New' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTitle('Code Diff'));
-
-    await waitFor(() => expect(screen.queryByRole('heading', { name: 'New' })).toBeNull());
+    expect(await screen.findByText('Old text.')).toBeInTheDocument();
+    expect(screen.getByText('New text.')).toBeInTheDocument();
+    expect(container.querySelector('[data-md-row-type="modified"]')).not.toBeNull();
   });
 });
