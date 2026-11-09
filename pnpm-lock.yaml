@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@asciidoctor/core':
+        specifier: 4.2.1
+        version: 4.2.1
       '@floating-ui/react':
         specifier: ^0.27.16
         version: 0.27.19(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -20,6 +23,9 @@ importers:
       diff:
         specifier: ^9.0.0
         version: 9.0.0
+      dompurify:
+        specifier: 3.4.17
+        version: 3.4.17
       express:
         specifier: ^5.1.0
         version: 5.2.1
@@ -189,6 +195,15 @@ packages:
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
+
+  '@asciidoctor/core@4.2.1':
+    resolution: {integrity: sha512-c/LvM4nnkeLhHryAQOI41AL7UlOowmydMhNaVoH4zecKo2HkyalaNodeVqueR2RVU0/MOg4HPikYtFMHdVXa4A==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      highlight.js: ^11.0.0
+    peerDependenciesMeta:
+      highlight.js:
+        optional: true
 
   '@azu/format-text@1.0.2':
     resolution: {integrity: sha512-Swi4N7Edy1Eqq82GxgEECXSSLyn6GOb5htRFPzBDdUkECGXtlf12ynO5oJSpWKPwCaUssOu7NfhDcCWpIC6Ywg==}
@@ -2368,6 +2383,9 @@ packages:
     resolution: {integrity: sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==}
     engines: {node: '>= 4'}
 
+  dompurify@3.4.17:
+    resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
+
   dompurify@3.4.5:
     resolution: {integrity: sha512-OrwIBKsdNSVEeubdJ1HBv/wNENRM9ytAVCv7YXt//A3vPdVMNuACRqK9mXCGCBW2ln7BT/A4X0jXHo2Gu89miA==}
 
@@ -4314,6 +4332,8 @@ snapshots:
     dependencies:
       package-manager-detector: 1.6.0
       tinyexec: 1.2.4
+
+  '@asciidoctor/core@4.2.1': {}
 
   '@azu/format-text@1.0.2': {}
 
@@ -6276,6 +6296,10 @@ snapshots:
   domhandler@5.0.3:
     dependencies:
       domelementtype: 2.3.0
+
+  dompurify@3.4.17:
+    optionalDependencies:
+      '@types/trusted-types': 2.0.7
 
   dompurify@3.4.5:
     optionalDependencies:

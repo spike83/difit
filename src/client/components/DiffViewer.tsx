@@ -232,7 +232,9 @@ export const DiffViewer = memo(function DiffViewer({
   const hasHiddenLines = chunksHaveHiddenLines(mergedChunks);
   const hasExpandedLines = chunksHaveExpandedLines(mergedChunks);
   // The full preview renders the whole file, so there is nothing to expand.
-  const isFullPreview = viewer.id === 'markdown' && markdownPreviewMode === 'full-preview';
+  const isFullPreview =
+    (viewer.id === 'markdown' && markdownPreviewMode === 'full-preview') ||
+    (viewer.id === 'asciidoc' && markdownPreviewMode !== 'diff');
   const fullFileToggle = useMemo(
     () =>
       !canExpandHiddenLines || isFullPreview
