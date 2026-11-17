@@ -89,6 +89,7 @@ const BlockHtmlContext = createContext<Map<MarkdownBlock, string> | null>(null);
 
 const NON_RENDERED_KINDS = new Set<MarkdownBlock['kind']>(['html', 'definition']);
 const DEFINITION_KINDS = new Set<MarkdownBlock['kind']>(['definition', 'footnoteDefinition']);
+const SELECTION_CLASSES = ['md-drag-selected', 'md-comment-selected'];
 const SELECTION_BUTTON_OFFSET = 12;
 const SELECTION_BUTTON_HEIGHT = 28;
 const SELECTION_BUTTON_WIDTH = 180;
@@ -318,8 +319,9 @@ const PaneCell = memo(function PaneCell({
   divided: boolean;
   frontmatterDiff?: FrontmatterPair;
   contentRef: React.RefObject<HTMLDivElement | null>;
-  dragSelected: boolean;
-  commentSelected: boolean;
+  /** The lines of this side's block that a gutter drag or the open comment form covers. */
+  dragSelected: LineRange | null;
+  commentSelected: LineRange | null;
   onStartDrag: (target: CommentTarget) => void;
   onHoverTarget: (target: CommentTarget | null) => void;
 }) {
@@ -327,6 +329,31 @@ const PaneCell = memo(function PaneCell({
   const [hover, setHover] = useState<HoverTarget | null>(null);
   // The frontmatter diff table colors its own rows.
   const status = block && !frontmatterDiff ? getPaneStatus(rowType, side) : null;
+  const coversBlock = (range: LineRange | null) =>
+    !!range && !!block && range.start <= block.startLine && range.end >= block.endLine;
+
+  // A range inside the block (table rows, list items) marks just those elements, so a
+  // comment on one row of a long table does not light up the whole table.
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    for (const className of SELECTION_CLASSES) {
+      content.querySelectorAll(`.${className}`).forEach((el) => el.classList.remove(className));
+    }
+    const mark = (range: LineRange | null, className: string) => {
+      if (!range || coversBlock(range)) return;
+      const marked: Element[] = [];
+      for (const element of content.querySelectorAll('[data-md-line-start]')) {
+        const lines = readLineRange(element);
+        if (!lines || lines.start < range.start || lines.end > range.end) continue;
+        if (marked.some((outer) => outer.contains(element))) continue;
+        element.classList.add(className);
+        marked.push(element);
+      }
+    };
+    mark(dragSelected, 'md-drag-selected');
+    mark(commentSelected, 'md-comment-selected');
+  });
 
   const handleMouseMove = (event: React.MouseEvent) => {
     const cell = cellRef.current;
@@ -349,7 +376,15 @@ const PaneCell = memo(function PaneCell({
       onHoverTarget(null);
       return;
     }
-    onHoverTarget({ ...range, side, rowIndex });
+    // On a table cell, `c` quotes the cell so the comment says which one it means.
+    const tableCell = anchor.tagName === 'TR' ? target.closest('td, th') : null;
+    const cellText = tableCell && anchor.contains(tableCell) ? tableCell.textContent?.trim() : '';
+    onHoverTarget({
+      ...range,
+      side,
+      rowIndex,
+      ...(cellText ? { initialBody: quoteSelection(cellText) } : {}),
+    });
     const cellRect = cell.getBoundingClientRect();
     const anchorRect = anchor.getBoundingClientRect();
     const top = anchorRect.top - cellRect.top;
@@ -376,8 +411,8 @@ const PaneCell = memo(function PaneCell({
       data-md-status={status ?? (block ? 'unchanged' : 'empty')}
       className={`relative min-w-0 border-l-4 py-2 pl-9 pr-4 ${statusClass} ${
         divided ? 'border-r border-r-github-border' : ''
-      } ${block ? '' : 'md-split-spacer'} ${dragSelected ? 'md-drag-selected' : ''} ${
-        commentSelected ? 'md-comment-selected' : ''
+      } ${block ? '' : 'md-split-spacer'} ${coversBlock(dragSelected) ? 'md-drag-selected' : ''} ${
+        coversBlock(commentSelected) ? 'md-comment-selected' : ''
       }`}
       onMouseMove={block ? handleMouseMove : undefined}
       onMouseLeave={() => {
@@ -439,7 +474,11 @@ const SplitRow = memo(function SplitRow({
   newDefinitions,
   syntaxTheme,
   dragSelectedSide,
+  dragStart,
+  dragEnd,
   commentSelectedSide,
+  commentStart,
+  commentEnd,
   onStartDrag,
   onHoverTarget,
 }: {
@@ -450,8 +489,13 @@ const SplitRow = memo(function SplitRow({
   oldDefinitions: string[];
   newDefinitions: string[];
   syntaxTheme?: DiffViewerBodyProps['syntaxTheme'];
+  // Lines as numbers rather than range objects, so unaffected rows keep their memo.
   dragSelectedSide: DiffSide | null;
+  dragStart: number;
+  dragEnd: number;
   commentSelectedSide: DiffSide | null;
+  commentStart: number;
+  commentEnd: number;
   onStartDrag: (target: CommentTarget) => void;
   onHoverTarget: (target: CommentTarget | null) => void;
 }) {
@@ -516,8 +560,10 @@ const SplitRow = memo(function SplitRow({
           divided={layout === 'split' && side === 'old'}
           frontmatterDiff={frontmatterDiff}
           contentRef={side === 'old' ? oldContentRef : newContentRef}
-          dragSelected={dragSelectedSide === side}
-          commentSelected={commentSelectedSide === side}
+          dragSelected={dragSelectedSide === side ? { start: dragStart, end: dragEnd } : null}
+          commentSelected={
+            commentSelectedSide === side ? { start: commentStart, end: commentEnd } : null
+          }
           onStartDrag={onStartDrag}
           onHoverTarget={onHoverTarget}
         />
@@ -923,6 +969,8 @@ export function MarkdownSplitPreview({
           if (!row) return null;
           const hasComments =
             threadsByRow.has(item.index) || commentTarget?.rowIndex === item.index;
+          const dragSide = selectedSide(row, dragRange);
+          const commentSide = dragRange ? null : selectedSide(row, commentTarget);
           return (
             <React.Fragment key={`row-${item.index}`}>
               <SplitRow
@@ -933,8 +981,12 @@ export function MarkdownSplitPreview({
                 oldDefinitions={oldDefinitions}
                 newDefinitions={newDefinitions}
                 syntaxTheme={syntaxTheme}
-                dragSelectedSide={selectedSide(row, dragRange)}
-                commentSelectedSide={dragRange ? null : selectedSide(row, commentTarget)}
+                dragSelectedSide={dragSide}
+                dragStart={dragSide ? (dragRange?.start ?? 0) : 0}
+                dragEnd={dragSide ? (dragRange?.end ?? 0) : 0}
+                commentSelectedSide={commentSide}
+                commentStart={commentSide ? (commentTarget?.start ?? 0) : 0}
+                commentEnd={commentSide ? (commentTarget?.end ?? 0) : 0}
                 onStartDrag={handleStartDrag}
                 onHoverTarget={handleHoverTarget}
               />
