@@ -141,6 +141,24 @@ describe('MarkdownSplitPreview', () => {
     expect(within(cell).getByRole('button', { name: 'Add comment on L4' })).toBeInTheDocument();
   });
 
+  it('marks only the table row a comment is on, and c on a cell quotes the cell', () => {
+    const table = ['| a | b |', '| - | - |', '| 1 | 2 |', '| 3 | 4 |'].join('\n');
+    const { container } = renderPreview({ layout: 'single', targetContent: table });
+    const cell = getCell(container, 'new', '3');
+
+    fireEvent.mouseMove(within(cell).getByText('4'));
+    fireEvent.keyDown(document, { key: 'c', code: 'KeyC' });
+
+    expect(screen.getByText('Comment on L4')).toBeInTheDocument();
+    expect((screen.getByPlaceholderText('Leave a comment...') as HTMLTextAreaElement).value).toBe(
+      '> 4\n\n',
+    );
+    expect(cell.classList.contains('md-comment-selected')).toBe(false);
+    const marked = Array.from(cell.querySelectorAll('.md-comment-selected'));
+    expect(marked.map((element) => element.textContent)).toEqual(['34']);
+    fireEvent.mouseLeave(cell);
+  });
+
   it('renders footnote references and definitions instead of raw syntax', () => {
     const withFootnote = 'A claim[^1].\n\n[^1]: The source.';
     const { container } = renderPreview({
