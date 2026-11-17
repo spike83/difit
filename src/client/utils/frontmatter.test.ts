@@ -32,6 +32,24 @@ describe('extractFrontmatter', () => {
     expect(extractFrontmatter(text)).toEqual({ data: null, content: 'Body text.' });
   });
 
+  it('parses TOML frontmatter between +++ lines', () => {
+    const text = '+++\ntitle = "Hello"\ntags = ["a", "b"]\n+++\n\nBody text.';
+    expect(extractFrontmatter(text)).toEqual({
+      data: { title: 'Hello', tags: ['a', 'b'] },
+      content: '\nBody text.',
+    });
+  });
+
+  it('falls back to the original text on TOML syntax errors', () => {
+    const text = '+++\ntitle = \n+++\nBody text.';
+    expect(extractFrontmatter(text)).toEqual({ data: null, content: text });
+  });
+
+  it('does not close +++ frontmatter with ---', () => {
+    const text = '+++\ntitle = "X"\n---\nBody text.';
+    expect(extractFrontmatter(text)).toEqual({ data: null, content: text });
+  });
+
   it('returns empty content when the body is empty', () => {
     const text = '---\ntitle: X\n---\n';
     expect(extractFrontmatter(text)).toEqual({ data: { title: 'X' }, content: '' });
@@ -50,6 +68,11 @@ describe('getFrontmatterLines', () => {
 
   it('includes both delimiters for empty frontmatter', () => {
     expect(getFrontmatterLines('---\n---\nBody.')).toEqual(['---', '---']);
+    expect(getFrontmatterLines('+++\ntitle = "X"\n+++\nBody.')).toEqual([
+      '+++',
+      'title = "X"',
+      '+++',
+    ]);
   });
 
   it('handles frontmatter at end of file without a trailing newline', () => {
