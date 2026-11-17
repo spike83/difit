@@ -11,6 +11,7 @@ import {
 } from '../../types/diff';
 import { DEFAULT_DIFF_VIEW_MODE } from '../../utils/diffMode';
 import { type CursorPosition } from '../hooks/keyboardNavigation';
+import { useCodeSelectionComment } from '../hooks/useCodeSelectionComment';
 import {
   computeWordLevelDiff,
   shouldComputeWordDiff,
@@ -87,6 +88,7 @@ export const DiffChunk = memo(function DiffChunk({
   const [commentingLine, setCommentingLine] = useState<{
     side: DiffSide;
     lineNumber: LineNumber;
+    initialBody?: string;
   } | null>(null);
   const [selectionAnchor, setSelectionAnchor] = useState<{
     side: DiffSide;
@@ -119,6 +121,13 @@ export const DiffChunk = memo(function DiffChunk({
     },
     [commentingLine],
   );
+
+  const startSelectionComment = useCallback(
+    (side: DiffSide, lineNumber: LineNumber, initialBody: string) =>
+      setCommentingLine({ side, lineNumber, initialBody }),
+    [],
+  );
+  const selectionComment = useCodeSelectionComment(startSelectionComment);
 
   const getCommentLineFromAnchor = (selection: LineSelection): LineNumber => {
     if (!selectionAnchor || selectionAnchor.side !== selection.side) {
@@ -412,7 +421,11 @@ export const DiffChunk = memo(function DiffChunk({
   }
 
   return (
-    <div className="bg-github-bg-primary">
+    <div
+      className="bg-github-bg-primary"
+      ref={selectionComment.containerRef}
+      onMouseDown={selectionComment.onMouseDown}
+    >
       <table className="w-full table-fixed border-collapse font-mono text-sm leading-5">
         <tbody>
           {chunk.lines.map((line, index) => {
@@ -491,6 +504,8 @@ export const DiffChunk = memo(function DiffChunk({
                   syntaxTheme={syntaxTheme}
                   filename={filename}
                   diffSegments={wordLevelDiffMap.get(index)}
+                  codeSide={commentSide}
+                  codeLine={commentLineNumber}
                   onClick={(e) => {
                     // Determine the side based on line type for unified mode
                     const side = line.type === 'delete' ? 'left' : 'right';
@@ -556,11 +571,13 @@ export const DiffChunk = memo(function DiffChunk({
                             className={`${getCommentLayout(line) === 'full' ? 'w-full' : 'w-1/2'}`}
                           >
                             <CommentForm
+                              key={commentingLine.initialBody ?? ''}
                               onSubmit={handleSubmitComment}
                               onCancel={handleCancelComment}
                               selectedCode={getSelectedCodeContent()}
                               syntaxTheme={syntaxTheme}
                               filename={filename}
+                              initialValue={commentingLine.initialBody}
                             />
                           </div>
                         </div>
@@ -572,6 +589,7 @@ export const DiffChunk = memo(function DiffChunk({
           })}
         </tbody>
       </table>
+      {selectionComment.selectionButton}
     </div>
   );
 });

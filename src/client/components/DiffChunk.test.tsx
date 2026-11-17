@@ -225,3 +225,107 @@ describe('DiffChunk range comments', () => {
     });
   });
 });
+
+describe('DiffChunk text selection comments', () => {
+  const selectText = (from: Node, to: Node) => {
+    const range = document.createRange();
+    range.setStart(from, 0);
+    range.setEnd(to, to.childNodes.length);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+  };
+
+  it('quotes text selected in the unified view and comments on its lines', async () => {
+    const onAddComment = vi.fn().mockResolvedValue(undefined);
+    const { container } = renderWithProviders(
+      <DiffChunk
+        chunk={testChunk}
+        chunkIndex={0}
+        threads={[]}
+        mode="unified"
+        onAddComment={onAddComment}
+        onGenerateThreadPrompt={() => ''}
+        onRemoveThread={noop}
+        onReplyToThread={asyncNoop}
+        onRemoveMessage={noop}
+        onUpdateMessage={noop}
+        filename="notes.txt"
+      />,
+    );
+
+    const cells = container.querySelectorAll('[data-code-side="new"]');
+    fireEvent.mouseDown(cells[1]!);
+    selectText(cells[1]!, cells[2]!);
+    fireEvent.mouseUp(document);
+    fireEvent.click(screen.getByRole('button', { name: 'Comment on L11-L12' }));
+
+    const textbox = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(textbox.value).toBe('> const second = 2;\n> const third = 3;\n\n');
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => {
+      expect(onAddComment).toHaveBeenCalledWith(
+        [11, 12],
+        '> const second = 2;\n> const third = 3;',
+        ['const second = 2;', 'const third = 3;'].join('\n'),
+        'new',
+      );
+    });
+  });
+
+  it('keeps a split-view selection on the side the drag started on', () => {
+    const { container } = renderWithProviders(
+      <SideBySideDiffChunk
+        chunk={testChunk}
+        chunkIndex={0}
+        threads={[]}
+        onAddComment={vi.fn().mockResolvedValue(undefined)}
+        onGenerateThreadPrompt={() => ''}
+        onRemoveThread={noop}
+        onReplyToThread={asyncNoop}
+        onRemoveMessage={noop}
+        onUpdateMessage={noop}
+        filename="notes.txt"
+      />,
+    );
+
+    const oldCells = container.querySelectorAll('[data-code-side="old"]');
+    const newCells = container.querySelectorAll('[data-code-side="new"]');
+    fireEvent.mouseDown(oldCells[0]!);
+    // The DOM range runs through both columns; only the old side counts.
+    selectText(oldCells[0]!, newCells[2]!);
+    fireEvent.mouseUp(document);
+
+    expect(container.firstElementChild?.getAttribute('data-code-select-side')).toBe('old');
+    fireEvent.click(screen.getByRole('button', { name: 'Comment on L10-L11' }));
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+      '> const first = 1;\n> const second = 2;\n\n',
+    );
+  });
+
+  it('offers no button for a selection that leaves the chunk', () => {
+    const { container } = renderWithProviders(
+      <div>
+        <p data-testid="outside">outside text</p>
+        <DiffChunk
+          chunk={testChunk}
+          chunkIndex={0}
+          threads={[]}
+          mode="unified"
+          onAddComment={vi.fn().mockResolvedValue(undefined)}
+          onGenerateThreadPrompt={() => ''}
+          onRemoveThread={noop}
+          onReplyToThread={asyncNoop}
+          onRemoveMessage={noop}
+          onUpdateMessage={noop}
+          filename="notes.txt"
+        />
+      </div>,
+    );
+
+    selectText(screen.getByTestId('outside'), container.querySelectorAll('[data-code-side]')[1]!);
+    fireEvent.mouseUp(document);
+
+    expect(screen.queryByRole('button', { name: /^Comment on/ })).toBeNull();
+  });
+});

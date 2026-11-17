@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 
 import { DEFAULT_DIFF_VIEW_MODE } from '../../utils/diffMode';
+import { isSelectionCommentOffered } from '../components/SelectionCommentButton';
 import { NAVIGATION_SELECTORS } from '../constants/navigation';
 import { getFileElementId } from '../utils/domUtils';
 import { getElementId, getCommentKey } from '../utils/navigation/domHelpers';
@@ -616,6 +617,8 @@ export function useKeyboardNavigation({
   useHotkeys(
     'c',
     () => {
+      // With text selected, `c` quotes the selection instead.
+      if (isSelectionCommentOffered()) return;
       if (cursor && onCreateComment) {
         // Get the current line
         const line = files[cursor.fileIndex]?.chunks[cursor.chunkIndex]?.lines[cursor.lineIndex];

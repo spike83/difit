@@ -434,3 +434,12 @@ tr.drag-selected-last td::after {
 .asciidoc-preview #toc ul {
   list-style: none;
 }
+
+/* Code diff: a text selection stays on the side it started on. The code itself is
+   select-text, so the rule has to reach the descendants too. */
+[data-code-select-side="new"] [data-code-side="old"],
+[data-code-select-side="new"] [data-code-side="old"] *,
+[data-code-select-side="old"] [data-code-side="new"],
+[data-code-select-side="old"] [data-code-side="new"] * {
+  user-select: none;
+}

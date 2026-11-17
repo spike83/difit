@@ -9,6 +9,7 @@ import {
   type LineSelection,
 } from '../../types/diff';
 import { type CursorPosition } from '../hooks/keyboardNavigation';
+import { codeCellProps, useCodeSelectionComment } from '../hooks/useCodeSelectionComment';
 import {
   computeWordLevelDiff,
   shouldComputeWordDiff,
@@ -167,6 +168,7 @@ export function SideBySideDiffChunk({
   const [commentingLine, setCommentingLine] = useState<{
     side: DiffSide;
     lineNumber: LineNumber;
+    initialBody?: string;
   } | null>(null);
   const [selectionAnchor, setSelectionAnchor] = useState<LineSelection | null>(null);
   const [hoveredLine, setHoveredLine] = useState<LineSelection | null>(null);
@@ -195,6 +197,13 @@ export function SideBySideDiffChunk({
     },
     [commentingLine],
   );
+
+  const startSelectionComment = useCallback(
+    (side: DiffSide, lineNumber: LineNumber, initialBody: string) =>
+      setCommentingLine({ side, lineNumber, initialBody }),
+    [],
+  );
+  const selectionComment = useCodeSelectionComment(startSelectionComment);
 
   const getCommentLineFromAnchor = (selection: LineSelection): LineNumber => {
     if (!selectionAnchor || selectionAnchor.side !== selection.side) {
@@ -508,7 +517,11 @@ export function SideBySideDiffChunk({
   );
 
   return (
-    <div className="bg-github-bg-primary overflow-hidden">
+    <div
+      className="bg-github-bg-primary overflow-hidden"
+      ref={selectionComment.containerRef}
+      onMouseDown={selectionComment.onMouseDown}
+    >
       <table className="w-full table-fixed border-collapse font-mono text-sm leading-5">
         <tbody>
           {sideBySideLines.map((sideLine, index) => {
@@ -693,6 +706,7 @@ export function SideBySideDiffChunk({
                   </td>
                   <td
                     className={`w-1/2 p-0 align-top border-r border-github-border relative ${getSideBySideLineClass(sideLine.oldLine, isExpandedLine(sideLine.oldLine))} ${getSelectedLineStyle('old', sideLine)} ${highlightOldCell ? cellHighlightClass : ''}`}
+                    {...codeCellProps('old', sideLine.oldLine ? sideLine.oldLineNumber : undefined)}
                   >
                     {sideLine.oldLine && (
                       <div className="flex items-center relative min-h-[20px] px-3">
@@ -752,6 +766,7 @@ export function SideBySideDiffChunk({
                   </td>
                   <td
                     className={`w-1/2 p-0 align-top relative ${getSideBySideLineClass(sideLine.newLine, isExpandedLine(sideLine.newLine))} ${getSelectedLineStyle('new', sideLine)} ${highlightNewCell ? cellHighlightClass : ''}`}
+                    {...codeCellProps('new', sideLine.newLine ? sideLine.newLineNumber : undefined)}
                   >
                     {sideLine.newLine && (
                       <div className="flex items-center relative min-h-[20px] px-3">
@@ -849,11 +864,13 @@ export function SideBySideDiffChunk({
                         >
                           <div className={`w-1/2`}>
                             <CommentForm
+                              key={commentingLine.initialBody ?? ''}
                               onSubmit={handleSubmitComment}
                               onCancel={handleCancelComment}
                               selectedCode={getSelectedCodeContent()}
                               syntaxTheme={syntaxTheme}
                               filename={filename}
+                              initialValue={commentingLine.initialBody}
                             />
                           </div>
                         </div>
@@ -865,6 +882,7 @@ export function SideBySideDiffChunk({
           })}
         </tbody>
       </table>
+      {selectionComment.selectionButton}
     </div>
   );
 }
