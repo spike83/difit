@@ -1,6 +1,7 @@
 import React from 'react';
 
-import { type DiffLine, type ExpandedLine } from '../../types/diff';
+import { type DiffLine, type DiffSide, type ExpandedLine } from '../../types/diff';
+import { codeCellProps } from '../hooks/useCodeSelectionComment';
 import { type DiffSegment } from '../utils/wordLevelDiff';
 
 import { CommentButton } from './CommentButton';
@@ -24,6 +25,8 @@ interface DiffLineRowProps {
   onClick?: (e: React.MouseEvent<HTMLTableRowElement>) => void;
   filename?: string;
   diffSegments?: DiffSegment[];
+  codeSide?: DiffSide;
+  codeLine?: number;
 }
 
 const getLineClass = (line: DiffLine | ExpandedLine) => {
@@ -58,6 +61,8 @@ export const DiffLineRow: React.FC<DiffLineRowProps> = React.memo(
     onClick,
     filename,
     diffSegments,
+    codeSide,
+    codeLine,
   }) => {
     const lineNumber = line.newLineNumber || line.oldLineNumber;
     const showLineActions = hoveredLineIndex === index && lineNumber;
@@ -86,7 +91,10 @@ export const DiffLineRow: React.FC<DiffLineRowProps> = React.memo(
             </>
           )}
         </td>
-        <td className="p-0 w-full relative align-top">
+        <td
+          className="p-0 w-full relative align-top"
+          {...(codeSide ? codeCellProps(codeSide, codeLine) : {})}
+        >
           <DiffCodeLine
             line={line}
             syntaxTheme={syntaxTheme}

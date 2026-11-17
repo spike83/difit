@@ -1,4 +1,4 @@
-import { ChevronsUpDown, MessageSquarePlus } from 'lucide-react';
+import { ChevronsUpDown } from 'lucide-react';
 import React, {
   createContext,
   memo,
@@ -19,6 +19,7 @@ import { CommentButton } from '../components/CommentButton';
 import { CommentForm } from '../components/CommentForm';
 import { CommentThreadCard } from '../components/CommentThreadCard';
 import { FrontmatterTable } from '../components/FrontmatterTable';
+import { SelectionCommentButton } from '../components/SelectionCommentButton';
 import type { PreparedBlocks } from '../utils/asciidoc';
 import { extractFrontmatter } from '../utils/frontmatter';
 import { computeFrontmatterDiff } from '../utils/frontmatterDiff';
@@ -37,6 +38,12 @@ import {
   type RowThreads,
 } from '../utils/markdownSplitLayout';
 import { isSafeUrl } from '../utils/markdownUtils';
+import {
+  formatLineRange,
+  quoteSelection,
+  selectedTextIn,
+  selectionButtonPosition,
+} from '../utils/selectionComment';
 import { addTextHighlights, createTextRanges, layoutText } from '../utils/textHighlights';
 import { MIN_WORD_DIFF_SIMILARITY } from '../utils/wordLevelDiff';
 
@@ -90,47 +97,13 @@ const BlockHtmlContext = createContext<Map<MarkdownBlock, string> | null>(null);
 const NON_RENDERED_KINDS = new Set<MarkdownBlock['kind']>(['html', 'definition']);
 const DEFINITION_KINDS = new Set<MarkdownBlock['kind']>(['definition', 'footnoteDefinition']);
 const SELECTION_CLASSES = ['md-drag-selected', 'md-comment-selected'];
-const SELECTION_BUTTON_OFFSET = 12;
-const SELECTION_BUTTON_HEIGHT = 28;
-const SELECTION_BUTTON_WIDTH = 180;
-const selectionButtonStyle: React.CSSProperties = {
-  backgroundColor: 'var(--color-yellow-btn-bg)',
-  color: 'var(--color-yellow-btn-text)',
-  border: '1px solid var(--color-yellow-btn-border)',
-};
-
 const splitLines = (content: string | null) =>
   (content ?? '').split('\n').map((line) => line.replace(/\r$/, ''));
-
-const formatLineRange = ({ start, end }: LineRange) =>
-  start === end ? `L${start}` : `L${start}-L${end}`;
-
-const quoteSelection = (text: string) =>
-  `${text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => `> ${line}`)
-    .join('\n')}\n\n`;
 
 const readLineRange = (element: Element | null | undefined): LineRange | null => {
   const start = Number(element?.getAttribute('data-md-line-start'));
   const end = Number(element?.getAttribute('data-md-line-end'));
   return start > 0 && end >= start ? { start, end } : null;
-};
-
-/** The part of `range` that lies inside `node`, as text. */
-const selectedTextIn = (range: Range, node: Node) => {
-  if (!range.intersectsNode(node)) return '';
-  const part = document.createRange();
-  part.selectNodeContents(node);
-  if (range.compareBoundaryPoints(Range.START_TO_START, part) > 0) {
-    part.setStart(range.startContainer, range.startOffset);
-  }
-  if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0) {
-    part.setEnd(range.endContainer, range.endOffset);
-  }
-  return part.toString();
 };
 
 const coversY = (element: Element, y: number) => {
@@ -776,30 +749,12 @@ export function MarkdownSplitPreview({
         enclosing.end,
       );
       const lines = findSourceLinesForText(sourceLines, enclosing.start, quote) ?? enclosing;
-      // Place the button where the mouse was released. The selection's bounding box spans
-      // whole lines, which puts the button far from the cursor on multi-line selections.
-      const containerRect = container.getBoundingClientRect();
-      const rects = range.getClientRects();
-      const lastRect = rects[rects.length - 1] ?? range.getBoundingClientRect();
-      const hasPointer = event.clientX !== 0 || event.clientY !== 0;
-      const x = hasPointer ? event.clientX : lastRect.right;
-      const y = hasPointer ? event.clientY : lastRect.bottom;
-      const fitsBelow = y + SELECTION_BUTTON_OFFSET + SELECTION_BUTTON_HEIGHT <= window.innerHeight;
       setSelectionTarget({
         ...lines,
         side,
         rowIndex: Number(endCell.getAttribute('data-md-row')),
         quote,
-        top:
-          y -
-          containerRect.top +
-          (fitsBelow
-            ? SELECTION_BUTTON_OFFSET
-            : -SELECTION_BUTTON_OFFSET - SELECTION_BUTTON_HEIGHT),
-        left: Math.max(
-          0,
-          Math.min(x - containerRect.left - 16, containerRect.width - SELECTION_BUTTON_WIDTH),
-        ),
+        ...selectionButtonPosition(event, range, container),
       });
     },
     [oldLines, newLines],
@@ -1004,17 +959,11 @@ export function MarkdownSplitPreview({
         })}
 
         {selectionTarget && (
-          <button
-            type="button"
-            data-md-selection-comment=""
-            className="absolute z-20 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-lg"
-            style={{
-              ...selectionButtonStyle,
-              top: selectionTarget.top,
-              left: selectionTarget.left,
-            }}
-            onMouseDown={(event) => event.preventDefault()}
-            onMouseUp={(event) => event.stopPropagation()}
+          <SelectionCommentButton
+            start={selectionTarget.start}
+            end={selectionTarget.end}
+            top={selectionTarget.top}
+            left={selectionTarget.left}
             onClick={() => {
               handleStartComment({
                 side: selectionTarget.side,
@@ -1025,10 +974,7 @@ export function MarkdownSplitPreview({
               });
               window.getSelection()?.removeAllRanges();
             }}
-          >
-            <MessageSquarePlus size={14} />
-            Comment on {formatLineRange(selectionTarget)}
-          </button>
+          />
         )}
       </div>
     </BlockHtmlContext.Provider>
