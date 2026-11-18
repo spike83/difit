@@ -248,6 +248,18 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                   </kbd>
                   <span className="text-github-text-muted">+</span>
                   <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                    F
+                  </kbd>
+                </div>
+                <span className="text-github-text-secondary">Comment on the whole file</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                    Shift
+                  </kbd>
+                  <span className="text-github-text-muted">+</span>
+                  <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
                     C
                   </kbd>
                 </div>

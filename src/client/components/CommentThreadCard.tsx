@@ -2,6 +2,7 @@ import { Check, ChevronDown, ChevronRight, Copy, Edit2, MessageSquare, Trash2 } 
 import React, { useEffect, useRef, useState } from 'react';
 
 import { type CommentThread, type DiffCommentMessage } from '../../types/diff';
+import { isFileCommentLine } from '../../utils/fileComments';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { copyTextToClipboard } from '../utils/clipboard';
 
@@ -266,7 +267,7 @@ export function CommentThreadCard({
               color: 'var(--color-yellow-path-text)',
             }}
           >
-            {thread.file}:{lineLabel}
+            {isFileCommentLine(thread.line) ? thread.file : `${thread.file}:${lineLabel}`}
           </span>
           {thread.isOutdated && (
             <span

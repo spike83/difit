@@ -46,7 +46,9 @@ export interface UseKeyboardNavigationProps {
   onRefresh?: () => void;
   onPreviewModeChange?: (mode: PreviewMode) => void;
   onToggleExpandAllLines?: (fileIndex: number) => void;
+  onCreateFileComment?: (fileIndex: number) => void;
   isModalOpen?: boolean;
+  /** The file file-level keys act on: under the mouse, or the cursor's when the keyboard was used last */
   getHoveredFileIndex?: () => number | null;
   /** Files shown whole (full preview, fully expanded): n/p jump file by file there */
   isShownWhole?: (fileIndex: number) => boolean;

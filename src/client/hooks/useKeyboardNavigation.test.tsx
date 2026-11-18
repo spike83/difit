@@ -716,7 +716,8 @@ describe('useKeyboardNavigation', () => {
       expect(onToggleReviewed).toHaveBeenCalledWith('file2.js');
     });
 
-    it('should prefer cursor file over hovered file', async () => {
+    // getHoveredFileIndex already falls back to the cursor's file when the keyboard was used last
+    it('should prefer the current file from getHoveredFileIndex over the cursor file', async () => {
       const user = userEvent.setup();
       const onToggleReviewed = vi.fn();
 
@@ -744,7 +745,7 @@ describe('useKeyboardNavigation', () => {
 
       await user.keyboard('v');
 
-      expect(onToggleReviewed).toHaveBeenCalledWith('file1.js');
+      expect(onToggleReviewed).toHaveBeenCalledWith('file2.js');
     });
 
     it('should not toggle reviewed state when no file is selected', async () => {

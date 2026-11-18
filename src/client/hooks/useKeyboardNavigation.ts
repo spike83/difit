@@ -38,6 +38,7 @@ export function useKeyboardNavigation({
   onRefresh,
   onPreviewModeChange,
   onToggleExpandAllLines,
+  onCreateFileComment,
   getHoveredFileIndex,
   isShownWhole,
 }: UseKeyboardNavigationProps): UseKeyboardNavigationReturn {
@@ -540,12 +541,12 @@ export function useKeyboardNavigation({
     [files, viewMode],
   );
 
-  // File review toggle - targets the cursor file, or the hovered file when
-  // there is no cursor (e.g. after a mouse click cleared it)
+  // File review toggle - targets the current file (see getHoveredFileIndex), else the
+  // cursor file
   useHotkeys(
     'v',
     () => {
-      const fileIndex = cursor?.fileIndex ?? getHoveredFileIndex?.() ?? null;
+      const fileIndex = getHoveredFileIndex?.() ?? cursor?.fileIndex ?? null;
       if (fileIndex !== null) {
         const file = files[fileIndex];
         if (file) {
@@ -562,7 +563,7 @@ export function useKeyboardNavigation({
     'shift+v',
     () => {
       const fileIndex =
-        cursor?.fileIndex ?? getHoveredFileIndex?.() ?? lastCursorRef.current?.fileIndex ?? null;
+        getHoveredFileIndex?.() ?? cursor?.fileIndex ?? lastCursorRef.current?.fileIndex ?? null;
       if (fileIndex === null) return;
       const file = files[fileIndex];
       if (!file) return;
@@ -600,11 +601,11 @@ export function useKeyboardNavigation({
     onPreviewModeChange,
   ]);
 
-  // Expand or collapse all lines of the current (or hovered) file
+  // Expand or collapse all lines of the current file
   useHotkeys(
     'x',
     () => {
-      const fileIndex = cursor?.fileIndex ?? getHoveredFileIndex?.() ?? null;
+      const fileIndex = getHoveredFileIndex?.() ?? cursor?.fileIndex ?? null;
       if (fileIndex !== null && onToggleExpandAllLines) {
         onToggleExpandAllLines(fileIndex);
       }
@@ -630,6 +631,20 @@ export function useKeyboardNavigation({
     },
     hotkeyOptions,
     [cursor, files, onCreateComment],
+  );
+
+  // Comment on the current (or hovered) file as a whole
+  useHotkeys(
+    'shift+f',
+    (event) => {
+      const fileIndex = getHoveredFileIndex?.() ?? cursor?.fileIndex ?? null;
+      if (fileIndex === null || !onCreateFileComment) return;
+      // Don't type the F into the form that opens
+      event.preventDefault();
+      onCreateFileComment(fileIndex);
+    },
+    hotkeyOptions,
+    [cursor, getHoveredFileIndex, onCreateFileComment],
   );
 
   // Help toggle
