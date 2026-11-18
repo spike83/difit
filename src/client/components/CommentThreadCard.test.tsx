@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { CommentThread } from '../../types/diff';
 
+import { CommentActionsProvider } from '../contexts/CommentActionsContext';
+
 import { CommentThreadCard } from './CommentThreadCard';
 
 const mockThread: CommentThread = {
@@ -416,5 +418,66 @@ describe('CommentThreadCard', () => {
     await user.click(screen.getByRole('button', { name: 'Delete' }));
 
     expect(onRemoveMessage).toHaveBeenCalledWith('thread-1', 'message-2');
+  });
+
+  describe('history and state', () => {
+    const renderCard = (thread: CommentThread, actions = {}) =>
+      render(
+        <CommentActionsProvider value={actions}>
+          <CommentThreadCard
+            thread={thread}
+            onGeneratePrompt={() => ''}
+            onRemoveThread={vi.fn()}
+            onReplyToThread={vi.fn().mockResolvedValue(undefined)}
+            onRemoveMessage={vi.fn()}
+            onUpdateMessage={vi.fn()}
+          />
+        </CommentActionsProvider>,
+      );
+
+    it('folds a resolved thread and offers Reopen and a confirmed permanent delete', async () => {
+      const user = userEvent.setup();
+      const reopenThread = vi.fn();
+      const deleteThread = vi.fn();
+      renderCard(
+        { ...mockThread, resolved: { by: 'Claude', at: mockThread.createdAt, note: 'fixed' } },
+        { reopenThread, deleteThread },
+      );
+
+      expect(screen.getByText('Resolved by Claude: fixed')).toBeInTheDocument();
+      expect(screen.queryByText('Reply comment')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Resolve thread')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTitle('Reopen thread'));
+      expect(reopenThread).toHaveBeenCalledWith('thread-1');
+
+      await user.click(screen.getByTitle('Delete thread permanently'));
+      expect(deleteThread).not.toHaveBeenCalled();
+      await user.click(screen.getByText('Delete permanently'));
+      expect(deleteThread).toHaveBeenCalledWith('thread-1');
+    });
+
+    it('marks unread replies and shows agent status on the user’s messages', () => {
+      const [root, reply] = mockThread.messages;
+      renderCard({
+        ...mockThread,
+        messages: [
+          { ...root!, status: { Claude: { state: 'handled', at: root!.createdAt } } },
+          reply!,
+        ],
+      });
+
+      expect(screen.getByText('✓ Claude handled')).toBeInTheDocument();
+      expect(screen.getAllByLabelText('Unread')).toHaveLength(1);
+    });
+
+    it('flags a todo', async () => {
+      const user = userEvent.setup();
+      const toggleTodo = vi.fn();
+      renderCard(mockThread, { toggleTodo });
+
+      await user.click(screen.getByTitle('Mark as todo (t)'));
+      expect(toggleTodo).toHaveBeenCalledWith('thread-1');
+    });
   });
 });

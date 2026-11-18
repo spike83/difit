@@ -39,6 +39,8 @@ export function useKeyboardNavigation({
   onPreviewModeChange,
   onToggleExpandAllLines,
   onCreateFileComment,
+  onNavigateUnread,
+  onToggleTodo,
   getHoveredFileIndex,
   isShownWhole,
 }: UseKeyboardNavigationProps): UseKeyboardNavigationReturn {
@@ -347,6 +349,9 @@ export function useKeyboardNavigation({
 
   // Comment navigation (N used to be next comment; it now mirrors n like vim)
   useHotkeys('shift+j', () => navigateToComment('next'), hotkeyOptions, [navigateToComment]);
+  useHotkeys('u', () => onNavigateUnread?.('next'), hotkeyOptions, [onNavigateUnread]);
+  useHotkeys('shift+u', () => onNavigateUnread?.('prev'), hotkeyOptions, [onNavigateUnread]);
+  useHotkeys('t', () => onToggleTodo?.(), hotkeyOptions, [onToggleTodo]);
   useHotkeys('shift+k, shift+p', () => navigateToComment('prev'), hotkeyOptions, [
     navigateToComment,
   ]);

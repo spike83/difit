@@ -16,6 +16,14 @@ import {
 } from '../../utils/commentFormatting';
 import { createId } from '../../utils/createId';
 import { mergeCommentImports } from '../../utils/commentImports';
+import {
+  addReply,
+  markRead,
+  reopenThread as reopen,
+  resolveThread as resolve,
+  setTodo,
+  USER_AUTHOR,
+} from '../../utils/commentState';
 import { storageService } from '../services/StorageService';
 import { getLanguageFromPath } from '../utils/diffUtils';
 
@@ -41,7 +49,12 @@ interface UseDiffCommentsReturn {
   addThread: (params: AddThreadParams) => DiffCommentThread;
   removeComment: (commentId: string) => void;
   replyToThread: (params: ReplyToThreadParams) => void;
+  /** Deletes for good; resolveThread keeps the thread as history. */
   removeThread: (threadId: string) => void;
+  resolveThread: (threadId: string) => void;
+  reopenThread: (threadId: string) => void;
+  toggleTodo: (threadId: string) => void;
+  markMessagesRead: (threadId: string, messageIds: string[]) => void;
   updateComment: (commentId: string, newBody: string) => void;
   removeMessage: (threadId: string, messageId: string) => void;
   updateMessage: (threadId: string, messageId: string, newBody: string) => void;
@@ -65,6 +78,8 @@ function normalizeThread(thread: DiffCommentThread): CommentThread {
     updatedAt: thread.updatedAt,
     codeContent: thread.codeSnapshot?.content,
     messages: thread.messages,
+    resolved: thread.resolved,
+    todo: thread.todo,
   };
 }
 
@@ -234,27 +249,57 @@ export function useDiffComments(
   const replyToThread = useCallback(
     ({ threadId, body }: ReplyToThreadParams) => {
       const now = new Date().toISOString();
+      const reply = { id: createId(), body, author: USER_AUTHOR, createdAt: now, updatedAt: now };
+      // Replying counts as having read the thread.
       const newThreads = threads.map((thread) =>
-        thread.id === threadId
-          ? {
-              ...thread,
-              updatedAt: now,
-              messages: [
-                ...thread.messages,
-                {
-                  id: createId(),
-                  body,
-                  author: 'User',
-                  createdAt: now,
-                  updatedAt: now,
-                },
-              ],
-            }
-          : thread,
+        thread.id === threadId ? markRead(addReply(thread, reply, now), USER_AUTHOR, now) : thread,
       );
       saveThreads(newThreads);
     },
     [saveThreads, threads],
+  );
+
+  const updateThread = useCallback(
+    (threadId: string, change: (thread: DiffCommentThread) => DiffCommentThread) => {
+      let changed = false;
+      const newThreads = threads.map((thread) => {
+        if (thread.id !== threadId) return thread;
+        const next = change(thread);
+        changed ||= next !== thread;
+        return next;
+      });
+      if (changed) saveThreads(newThreads);
+    },
+    [saveThreads, threads],
+  );
+
+  const resolveThread = useCallback(
+    (threadId: string) => updateThread(threadId, (thread) => resolve(thread, USER_AUTHOR)),
+    [updateThread],
+  );
+
+  const reopenThread = useCallback(
+    (threadId: string) => updateThread(threadId, (thread) => reopen(thread)),
+    [updateThread],
+  );
+
+  const toggleTodo = useCallback(
+    (threadId: string) =>
+      updateThread(threadId, (thread) =>
+        setTodo(
+          thread,
+          thread.todo ? undefined : { by: USER_AUTHOR, at: new Date().toISOString() },
+        ),
+      ),
+    [updateThread],
+  );
+
+  const markMessagesRead = useCallback(
+    (threadId: string, messageIds: string[]) =>
+      updateThread(threadId, (thread) =>
+        markRead(thread, USER_AUTHOR, new Date().toISOString(), messageIds),
+      ),
+    [updateThread],
   );
 
   const removeThread = useCallback(
@@ -440,7 +485,10 @@ export function useDiffComments(
 
   const generateAllCommentsPrompt = useCallback(
     (context?: CommentPromptDiffContext): string => {
-      return formatAllCommentThreadsPrompt(threads.map(normalizeThread), context);
+      return formatAllCommentThreadsPrompt(
+        threads.filter((thread) => !thread.resolved).map(normalizeThread),
+        context,
+      );
     },
     [threads],
   );
@@ -459,6 +507,10 @@ export function useDiffComments(
     removeComment,
     replyToThread,
     removeThread,
+    resolveThread,
+    reopenThread,
+    toggleTodo,
+    markMessagesRead,
     updateComment,
     removeMessage,
     updateMessage,

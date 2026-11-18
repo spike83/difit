@@ -3,6 +3,12 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useHotkeys, useHotkeysContext } from 'react-hotkeys-hook';
 
 import type { CommentThread } from '../../types/diff';
+import {
+  COMMENT_FILTERS,
+  type CommentFilter,
+  matchesCommentFilter,
+} from '../../utils/commentState';
+import { useCommentActions } from '../contexts/CommentActionsContext';
 import { hasActiveTextSelection } from '../utils/domUtils';
 
 import { CommentThreadCard } from './CommentThreadCard';
@@ -20,6 +26,8 @@ interface CommentsListModalProps {
   onRemoveMessage: (threadId: string, messageId: string) => void;
   onUpdateMessage: (threadId: string, messageId: string, newBody: string) => void;
   syntaxTheme?: AppearanceSettings['syntaxTheme'];
+  /** The filter tab shown when the list opens. */
+  initialFilter?: CommentFilter;
 }
 
 export function CommentsListModal({
@@ -34,21 +42,29 @@ export function CommentsListModal({
   onRemoveMessage,
   onUpdateMessage,
   syntaxTheme,
+  initialFilter = 'open',
 }: CommentsListModalProps) {
+  const { reopenThread } = useCommentActions();
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [filter, setFilter] = useState<CommentFilter>(initialFilter);
+  useEffect(() => {
+    if (isOpen) setFilter(initialFilter);
+  }, [initialFilter, isOpen]);
   const commentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const { enableScope, disableScope } = useHotkeysContext();
 
-  const sortedThreads = [...comments].sort((a, b) => {
-    const fileCompare = a.file.localeCompare(b.file);
-    if (fileCompare !== 0) return fileCompare;
+  const sortedThreads = comments
+    .filter((thread) => matchesCommentFilter(thread, filter))
+    .sort((a, b) => {
+      const fileCompare = a.file.localeCompare(b.file);
+      if (fileCompare !== 0) return fileCompare;
 
-    const aLine = Array.isArray(a.line) ? a.line[0] : a.line;
-    const bLine = Array.isArray(b.line) ? b.line[0] : b.line;
-    if (aLine !== bLine) return aLine - bLine;
+      const aLine = Array.isArray(a.line) ? a.line[0] : a.line;
+      const bLine = Array.isArray(b.line) ? b.line[0] : b.line;
+      if (aLine !== bLine) return aLine - bLine;
 
-    return a.createdAt.localeCompare(b.createdAt);
-  });
+      return a.createdAt.localeCompare(b.createdAt);
+    });
 
   const handleThreadClick = useCallback(
     (thread: CommentThread) => {
@@ -58,17 +74,16 @@ export function CommentsListModal({
     [onClose, onNavigate],
   );
 
-  const handleDeleteThread = useCallback(
+  // Resolving is undone with Reopen, so it needs no confirmation.
+  const handleResolveThread = useCallback(
     (thread: CommentThread) => {
-      const preview = thread.messages[0]?.body || '';
-      if (confirm(`Resolve this thread?\n\n"${preview}"`)) {
-        onRemoveThread(thread.id);
-        if (selectedIndex >= sortedThreads.length - 1 && selectedIndex > 0) {
-          setSelectedIndex(selectedIndex - 1);
-        }
+      if (thread.resolved) return;
+      onRemoveThread(thread.id);
+      if (filter !== 'resolved' && selectedIndex >= sortedThreads.length - 1 && selectedIndex > 0) {
+        setSelectedIndex(selectedIndex - 1);
       }
     },
-    [onRemoveThread, selectedIndex, sortedThreads.length],
+    [filter, onRemoveThread, selectedIndex, sortedThreads.length],
   );
 
   useEffect(() => {
@@ -115,11 +130,21 @@ export function CommentsListModal({
     'd',
     () => {
       if (sortedThreads[selectedIndex]) {
-        handleDeleteThread(sortedThreads[selectedIndex]);
+        handleResolveThread(sortedThreads[selectedIndex]);
       }
     },
     hotkeyOptions,
-    [handleDeleteThread, selectedIndex, sortedThreads],
+    [handleResolveThread, selectedIndex, sortedThreads],
+  );
+
+  useHotkeys(
+    'r',
+    () => {
+      const thread = sortedThreads[selectedIndex];
+      if (thread?.resolved) reopenThread?.(thread.id);
+    },
+    hotkeyOptions,
+    [reopenThread, selectedIndex, sortedThreads],
   );
 
   useEffect(() => {
@@ -150,15 +175,41 @@ export function CommentsListModal({
           <div className="text-xs text-github-text-secondary">
             <span className="font-mono">j/k</span> or <span className="font-mono">↑/↓</span> to
             navigate • <span className="font-mono">Enter</span> to jump •{' '}
-            <span className="font-mono">d</span> to resolve • <span className="font-mono">Esc</span>{' '}
-            to close
+            <span className="font-mono">d</span> to resolve • <span className="font-mono">r</span>{' '}
+            to reopen • <span className="font-mono">Esc</span> to close
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1" role="tablist" aria-label="Filter comments">
+            {COMMENT_FILTERS.map(({ id, label }) => {
+              const count = comments.filter((thread) => matchesCommentFilter(thread, id)).length;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={filter === id}
+                  onClick={() => {
+                    setFilter(id);
+                    setSelectedIndex(0);
+                  }}
+                  className={`rounded-full border px-3 py-0.5 text-xs transition-colors ${
+                    filter === id
+                      ? 'border-blue-500 bg-blue-500/15 text-github-text-primary'
+                      : 'border-github-border text-github-text-secondary hover:bg-github-bg-secondary'
+                  }`}
+                >
+                  {label} {count}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         <div className="max-h-[calc(80vh-120px)] overflow-y-auto">
           <div className="p-6">
             {sortedThreads.length === 0 ? (
-              <p className="text-center text-github-text-secondary">No comments yet</p>
+              <p className="text-center text-github-text-secondary">
+                {comments.length === 0 ? 'No comments yet' : 'No threads match this filter'}
+              </p>
             ) : (
               <>
                 <div className="space-y-2">
@@ -177,7 +228,7 @@ export function CommentsListModal({
                         onGeneratePrompt={onGenerateThreadPrompt}
                         onRemoveThread={(threadId) => {
                           if (threadId === thread.id) {
-                            handleDeleteThread(thread);
+                            handleResolveThread(thread);
                           }
                         }}
                         onReplyToThread={onReplyToThread}

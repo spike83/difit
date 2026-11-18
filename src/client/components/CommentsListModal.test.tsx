@@ -265,10 +265,8 @@ describe('CommentsListModal', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('uses the modal resolve handler from the resolve button', async () => {
+  it('resolves from the resolve button without a confirmation', async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.fn(() => false);
-    vi.stubGlobal('confirm', confirmSpy);
 
     render(
       <CommentsListModal
@@ -287,8 +285,32 @@ describe('CommentsListModal', () => {
 
     await user.click(screen.getAllByTitle('Resolve thread')[0]!);
 
-    expect(confirmSpy).toHaveBeenCalledWith('Resolve this thread?\n\n"First root comment"');
-    expect(mockRemoveThread).not.toHaveBeenCalled();
+    expect(mockRemoveThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists resolved threads only under the Resolved tab', async () => {
+    const user = userEvent.setup();
+    const [first, ...rest] = mockThreads;
+    const resolved = { ...first!, resolved: { by: 'Claude', at: first!.createdAt, note: 'fixed' } };
+
+    render(
+      <CommentsListModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+        comments={[resolved, ...rest]}
+        onRemoveThread={mockRemoveThread}
+        onGenerateThreadPrompt={mockGenerateThreadPrompt}
+        onReplyToThread={mockReplyToThread}
+        onRemoveMessage={mockRemoveMessage}
+        onUpdateMessage={mockUpdateMessage}
+      />,
+      { wrapper },
+    );
+
+    expect(screen.queryByText('Resolved by Claude: fixed')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Resolved/ }));
+    expect(screen.getByText('Resolved by Claude: fixed')).toBeInTheDocument();
   });
 
   it('shows empty state when there are no threads', () => {

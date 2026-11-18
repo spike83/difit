@@ -53,8 +53,8 @@ describe('createCommentCommand', () => {
   describe('resolve subcommand', () => {
     const resolveCommand = command.commands.find((c) => c.name() === 'resolve')!;
 
-    it('has "remove" alias', () => {
-      expect(resolveCommand.aliases()).toContain('remove');
+    it('no longer has the "remove" alias, since resolving keeps the thread', () => {
+      expect(resolveCommand.aliases()).not.toContain('remove');
     });
 
     it('requires --port option', () => {
@@ -229,17 +229,21 @@ describe('comment subcommand integration', () => {
   });
 
   describe('resolve', () => {
-    it('sends DELETE requests for each thread ID', async () => {
+    it('sends a resolve PATCH for each thread ID', async () => {
       mockFetch.mockResolvedValue(jsonResponse({ success: true, threadId: 'abc123', version: 2 }));
 
       const command = createCommentCommand();
       await command.parseAsync(['node', 'difit', 'resolve', '--port', '4966', 'abc123', 'def456']);
 
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:4966/api/comments/abc123', {
-        method: 'DELETE',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolve: true, by: 'User' }),
       });
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:4966/api/comments/def456', {
-        method: 'DELETE',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolve: true, by: 'User' }),
       });
       expect(consoleOutput[0]).toBe(
         JSON.stringify({
@@ -252,16 +256,28 @@ describe('comment subcommand integration', () => {
       expect(process.exit).not.toHaveBeenCalled();
     });
 
-    it('works via the remove alias', async () => {
-      mockFetch.mockResolvedValue(jsonResponse({ success: true, threadId: 'abc123', version: 2 }));
+    it('passes who resolved and a note', async () => {
+      mockFetch.mockResolvedValue(jsonResponse({ success: true }));
 
       const command = createCommentCommand();
-      await command.parseAsync(['node', 'difit', 'remove', '--port', '4966', 'abc123']);
+      await command.parseAsync([
+        'node',
+        'difit',
+        'resolve',
+        '--port',
+        '4966',
+        '--by',
+        'Claude',
+        '--note',
+        'renamed',
+        'abc123',
+      ]);
 
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:4966/api/comments/abc123', {
-        method: 'DELETE',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolve: true, by: 'Claude', note: 'renamed' }),
       });
-      expect(consoleOutput[0]).toContain('"success":true');
     });
 
     it('URL-encodes thread IDs', async () => {
@@ -271,7 +287,9 @@ describe('comment subcommand integration', () => {
       await command.parseAsync(['node', 'difit', 'resolve', '--port', '4966', 'a/b c']);
 
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:4966/api/comments/a%2Fb%20c', {
-        method: 'DELETE',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolve: true, by: 'User' }),
       });
     });
 

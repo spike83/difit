@@ -9,6 +9,7 @@ import {
   FilePen,
   Search,
   MessageSquare,
+  Flag,
   ChevronsDownUp,
   ChevronsUpDown,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ import {
 } from 'react';
 
 import { type DiffFile, type CommentThread } from '../../types/diff';
+import { matchesCommentFilter } from '../../utils/commentState';
 import { isSafariBrowser } from '../utils/browser';
 
 import { Checkbox } from './Checkbox';
@@ -188,10 +190,16 @@ export const FileList = memo(function FileList({
   );
   const [filterText, setFilterText] = useState('');
 
+  // Open threads per file, and whether one is unread or marked todo; resolved ones don't count.
   const commentCountMap = useMemo(() => {
-    const counts = new Map<string, number>();
+    const counts = new Map<string, { count: number; unread: boolean; todo: boolean }>();
     comments.forEach((comment) => {
-      counts.set(comment.file, (counts.get(comment.file) ?? 0) + 1);
+      if (comment.resolved) return;
+      const entry = counts.get(comment.file) ?? { count: 0, unread: false, todo: false };
+      entry.count += 1;
+      entry.unread ||= matchesCommentFilter(comment, 'unread');
+      entry.todo ||= Boolean(comment.todo);
+      counts.set(comment.file, entry);
     });
     return counts;
   }, [comments]);
@@ -424,7 +432,8 @@ export const FileList = memo(function FileList({
       );
     } else if (node.file) {
       const file = node.file;
-      const commentCount = commentCountMap.get(file.path) ?? 0;
+      const commentInfo = commentCountMap.get(file.path);
+      const commentCount = commentInfo?.count ?? 0;
       const isReviewed = reviewedFiles.has(file.path);
       const fileIndex = fileIndexMap.get(file.path) ?? -1;
       const isSelected = selectedFileIndex !== null && selectedFileIndex === fileIndex;
@@ -464,6 +473,16 @@ export const FileList = memo(function FileList({
           </span>
           {commentCount > 0 && (
             <span className="text-github-warning text-sm font-medium ml-auto flex items-center gap-1">
+              {commentInfo?.unread && (
+                <span
+                  className="h-2 w-2 rounded-full bg-blue-500"
+                  title="Unread comments"
+                  data-testid="file-unread"
+                />
+              )}
+              {commentInfo?.todo && (
+                <Flag size={12} className="text-orange-500" fill="currentColor" aria-label="Todo" />
+              )}
               <MessageSquare size={14} />
               {commentCount}
             </span>

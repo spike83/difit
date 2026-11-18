@@ -191,6 +191,26 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                 </div>
                 <span className="text-github-text-secondary">Previous comment</span>
               </div>
+              <div className="flex justify-between text-sm">
+                <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                  u
+                </kbd>
+                <span className="text-github-text-secondary">Next unread thread</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                  U
+                </kbd>
+                <span className="text-github-text-secondary">Previous unread thread</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <kbd className="px-2 py-1 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary font-mono">
+                  t
+                </kbd>
+                <span className="text-github-text-secondary">
+                  Toggle todo on the thread under the mouse
+                </span>
+              </div>
             </div>
           </section>
 

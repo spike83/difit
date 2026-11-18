@@ -8,6 +8,7 @@ import type {
   ReplyCommentImport,
   ThreadCommentImport,
 } from '../types/diff.js';
+import { addReply, mergeReadBy, mergeStatus, pickThreadState } from './commentState.js';
 import { createId } from './createId.js';
 import { isFileCommentLine } from './fileComments.js';
 
@@ -326,6 +327,8 @@ function cloneMessage(message: DiffCommentMessage): DiffCommentMessage {
     author: message.author,
     createdAt: message.createdAt,
     updatedAt: message.updatedAt,
+    readBy: message.readBy ? { ...message.readBy } : undefined,
+    status: message.status ? structuredClone(message.status) : undefined,
   };
 }
 
@@ -338,6 +341,9 @@ function cloneThread(thread: DiffCommentThread): DiffCommentThread {
     position: clonePosition(thread.position),
     codeSnapshot: cloneCodeSnapshot(thread.codeSnapshot),
     messages: thread.messages.map(cloneMessage),
+    resolved: thread.resolved ? { ...thread.resolved } : undefined,
+    todo: thread.todo ? { ...thread.todo } : undefined,
+    stateAt: thread.stateAt,
   };
 }
 
@@ -384,11 +390,16 @@ function pickNewerMessage(
   existingMessage: DiffCommentMessage,
   incomingMessage: DiffCommentMessage,
 ): DiffCommentMessage {
-  if (incomingMessage.updatedAt.localeCompare(existingMessage.updatedAt) >= 0) {
-    return cloneMessage(incomingMessage);
-  }
+  const newer =
+    incomingMessage.updatedAt.localeCompare(existingMessage.updatedAt) >= 0
+      ? incomingMessage
+      : existingMessage;
 
-  return cloneMessage(existingMessage);
+  return {
+    ...cloneMessage(newer),
+    readBy: mergeReadBy(existingMessage.readBy, incomingMessage.readBy),
+    status: mergeStatus(existingMessage.status, incomingMessage.status),
+  };
 }
 
 function mergeThread(
@@ -428,6 +439,7 @@ function mergeThread(
     position: clonePosition(existingThread.position),
     codeSnapshot: cloneCodeSnapshot(incomingThread.codeSnapshot ?? existingThread.codeSnapshot),
     messages: orderedMessages,
+    ...pickThreadState(existingThread, incomingThread),
   };
 }
 
@@ -511,7 +523,11 @@ export function mergeCommentImports(
           thread.filePath === commentImport.filePath &&
           positionsMatch(thread.position, commentImport.position),
       )
-      .sort(sortByNewestThread);
+      .sort(
+        (left, right) =>
+          Number(Boolean(left.resolved)) - Number(Boolean(right.resolved)) ||
+          sortByNewestThread(left, right),
+      );
 
     const targetThread = targetThreads[0];
     if (!targetThread) {
@@ -529,8 +545,11 @@ export function mergeCommentImports(
     }
 
     const importedReply = createImportedReply(commentImport, now);
-    targetThread.messages = [...targetThread.messages, importedReply];
-    targetThread.updatedAt = maxIsoTimestamp(targetThread.updatedAt, importedReply.updatedAt);
+    const replied = addReply(targetThread, importedReply, now);
+    threads[threads.indexOf(targetThread)] = {
+      ...replied,
+      updatedAt: maxIsoTimestamp(targetThread.updatedAt, importedReply.updatedAt),
+    };
   }
 
   return { threads, warnings };

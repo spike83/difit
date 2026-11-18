@@ -25,9 +25,20 @@ import {
   NONE_EDITOR_ID,
   resolveEditorOption,
 } from '../utils/editorOptions.js';
+import {
+  addReply,
+  isAgentState,
+  reopenThread,
+  resolveThread,
+  setAgentStatus,
+  setTodo,
+  USER_AUTHOR,
+} from '../utils/commentState.js';
+import { createId } from '../utils/createId.js';
 import { isFileCommentLine } from '../utils/fileComments.js';
 import { getFileExtension } from '../utils/fileUtils.js';
 
+import { CommentStore } from './comment-store.js';
 import { FileWatcherService } from './file-watcher.js';
 import { GitDiffParser } from './git-diff.js';
 import { parseUserSettingsPatch, readUserConfig, updateUserClientSettings } from './user-config.js';
@@ -107,6 +118,8 @@ function setCachedDiffResponse(cache: Map<string, DiffResponse>, key: string, va
 interface CommentSessionState {
   threads: DiffCommentThread[];
   version: number;
+  /** The threads came from (or went to) the comment file, so the browser's copy is only a cache. */
+  persisted: boolean;
 }
 
 function createResolvedCommentSelection(
@@ -125,6 +138,16 @@ function createResolvedCommentSelection(
 
 function createCommentSessionKey(selection: DiffSelection): string {
   return getDiffSelectionKey(selection);
+}
+
+// Each worktree has its own git dir, and so its own comments.
+async function openCommentStore(repositoryPath: string): Promise<CommentStore | null> {
+  try {
+    const gitDir = (await simpleGit(repositoryPath).revparse(['--absolute-git-dir'])).trim();
+    return new CommentStore(join(gitDir, 'difit', 'comments'));
+  } catch {
+    return null;
+  }
 }
 
 export async function startServer(
@@ -262,12 +285,17 @@ export async function startServer(
   }
 
   const commentSessions = new Map<string, CommentSessionState>();
-  const initialCommentThreads = mergeCommentImports([], initialCommentImports).threads;
-  if (initialCommentThreads.length > 0) {
-    commentSessions.set(createCommentSessionKey(currentCommentSelection), {
-      threads: initialCommentThreads,
-      version: 1,
-    });
+  const commentStore = options.stdinDiff ? null : await openCommentStore(repositoryPath);
+  // Sessions are keyed by resolved hashes, files by the selection as requested.
+  const requestedSelectionByCommentKey = new Map<string, DiffSelection>();
+  requestedSelectionByCommentKey.set(
+    createCommentSessionKey(currentCommentSelection),
+    initialSelection,
+  );
+  if (initialCommentImports.length > 0) {
+    const session = getOrCreateCommentSession(currentCommentSelection);
+    const merged = mergeCommentImports(session.threads, initialCommentImports).threads;
+    updateCommentSession(currentCommentSelection, merged);
   }
 
   function getCommentSelectionFromQuery(query: Record<string, unknown>): DiffSelection {
@@ -297,12 +325,20 @@ export async function startServer(
       return existing;
     }
 
+    const stored = commentStore?.load(getCommentFileKey(selection)) ?? null;
     const nextSession: CommentSessionState = {
-      threads: [],
+      threads: stored ?? [],
       version: 0,
+      persisted: stored !== null,
     };
     commentSessions.set(key, nextSession);
     return nextSession;
+  }
+
+  function getCommentFileKey(selection: DiffSelection): string {
+    const key = createCommentSessionKey(selection);
+    const requested = requestedSelectionByCommentKey.get(key);
+    return requested ? getDiffSelectionKey(requested) : key;
   }
 
   app.get('/api/diff', async (req, res) => {
@@ -357,6 +393,10 @@ export async function startServer(
       responseDiffData,
       requestedSelection,
       Boolean(options.stdinDiff),
+    );
+    requestedSelectionByCommentKey.set(
+      createCommentSessionKey(currentCommentSelection),
+      requestedSelection,
     );
 
     const baseCommitish =
@@ -638,6 +678,8 @@ export async function startServer(
       updatedAt: thread.updatedAt,
       codeContent: thread.codeSnapshot?.content,
       messages: thread.messages,
+      resolved: thread.resolved,
+      todo: thread.todo,
     };
   }
 
@@ -746,6 +788,10 @@ export async function startServer(
     }
 
     session.version += 1;
+    if (commentStore) {
+      commentStore.save(getCommentFileKey(selection), selection, nextThreads);
+      session.persisted = true;
+    }
     fileWatcher.broadcast({
       type: 'commentsChanged',
       version: session.version,
@@ -753,6 +799,134 @@ export async function startServer(
     });
     return true;
   }
+
+  /** Apply `change` to one thread; it returns the new thread or an [status, error] pair. */
+  function updateThread(
+    req: express.Request,
+    res: express.Response,
+    change: (thread: DiffCommentThread) => DiffCommentThread | [number, string],
+  ): void {
+    const selection = getCommentSelectionFromQuery(req.query as Record<string, unknown>);
+    const session = getOrCreateCommentSession(selection);
+    const threadId = String(req.params.threadId);
+    const current = session.threads.find((thread) => thread.id === threadId);
+    if (!current) {
+      res.status(404).json({ error: `Thread not found: ${threadId}` });
+      return;
+    }
+    const result = change(current);
+    if (Array.isArray(result)) {
+      res.status(result[0]).json({ error: result[1] });
+      return;
+    }
+    updateCommentSession(
+      selection,
+      session.threads.map((thread) => (thread === current ? result : thread)),
+    );
+    res.json({ success: true, version: session.version, thread: result });
+  }
+
+  function parseJsonBody(req: express.Request): Record<string, unknown> {
+    const body: unknown = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    return body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  }
+
+  const parseName = (value: unknown): string =>
+    typeof value === 'string' && value.trim() ? value.trim() : USER_AUTHOR;
+
+  // Resolve, reopen, set or clear the todo flag, or move the anchor:
+  // { resolve: true, by, note?, force? } | { reopen: true } | { todo: boolean, by } | { position }
+  app.patch('/api/comments/:threadId', (req, res) => {
+    let body: Record<string, unknown>;
+    try {
+      body = parseJsonBody(req);
+    } catch {
+      res.status(400).json({ error: 'Invalid JSON' });
+      return;
+    }
+    const by = parseName(body.by);
+    updateThread(req, res, (thread) => {
+      let next = thread;
+      if (body.position !== undefined) {
+        try {
+          const [parsed] = normalizeCommentImports({
+            type: 'thread',
+            filePath: next.filePath,
+            position: body.position,
+            body: '-',
+          });
+          next = { ...next, position: parsed?.position ?? next.position };
+        } catch (error) {
+          return [400, error instanceof Error ? error.message : 'Invalid position'];
+        }
+      }
+      if (body.reopen === true) {
+        next = reopenThread(next);
+      }
+      if (typeof body.todo === 'boolean') {
+        if (!body.todo && thread.todo && by !== USER_AUTHOR) {
+          return [403, 'Only the user clears a todo'];
+        }
+        next = setTodo(next, body.todo ? { by, at: new Date().toISOString() } : undefined);
+      }
+      if (body.resolve === true) {
+        if (next.todo && by !== USER_AUTHOR && body.force !== true) {
+          return [409, 'Thread is marked todo for the user; pass force to resolve anyway'];
+        }
+        next = resolveThread(next, by, typeof body.note === 'string' ? body.note : undefined);
+      }
+      return next;
+    });
+  });
+
+  // An agent's progress: { agent, state: seen|working|handled, messageIds? }
+  app.post('/api/comments/:threadId/status', (req, res) => {
+    let body: Record<string, unknown>;
+    try {
+      body = parseJsonBody(req);
+    } catch {
+      res.status(400).json({ error: 'Invalid JSON' });
+      return;
+    }
+    if (!isAgentState(body.state) || body.state === 'open') {
+      res.status(400).json({ error: 'state must be seen, working or handled' });
+      return;
+    }
+    const state = body.state;
+    const agent = parseName(body.agent);
+    const messageIds = Array.isArray(body.messageIds)
+      ? body.messageIds.filter((id): id is string => typeof id === 'string')
+      : undefined;
+    updateThread(req, res, (thread) =>
+      setAgentStatus(thread, agent, state, new Date().toISOString(), messageIds),
+    );
+  });
+
+  // A reply to one thread by id: { body, author, todo? }. Reopens a resolved thread.
+  app.post('/api/comments/:threadId/replies', (req, res) => {
+    let body: Record<string, unknown>;
+    try {
+      body = parseJsonBody(req);
+    } catch {
+      res.status(400).json({ error: 'Invalid JSON' });
+      return;
+    }
+    if (typeof body.body !== 'string' || !body.body.trim()) {
+      res.status(400).json({ error: 'body is required' });
+      return;
+    }
+    const author = parseName(body.author);
+    const replyBody = body.body.trim();
+    updateThread(req, res, (thread) => {
+      const at = new Date().toISOString();
+      const replied = addReply(
+        thread,
+        { id: createId(), body: replyBody, author, createdAt: at, updatedAt: at },
+        at,
+      );
+      return body.todo === true ? setTodo(replied, { by: author, at }, at) : replied;
+    });
+  });
 
   app.post('/api/comments', (req, res) => {
     try {
@@ -764,8 +938,11 @@ export async function startServer(
       const session = getOrCreateCommentSession(selection);
 
       // Stale baseVersion means another writer (e.g. an agent) changed comments since the
-      // client's last read, so merge rather than overwrite. A matching/absent version replaces.
-      const isStale = typeof baseVersion === 'number' && baseVersion !== session.version;
+      // client's last read, so merge rather than overwrite. A matching/absent version replaces;
+      // `merge: true` (an import of exported threads) always merges.
+      const forceMerge = (body as { merge?: unknown } | null)?.merge === true;
+      const isStale =
+        forceMerge || (typeof baseVersion === 'number' && baseVersion !== session.version);
       const resolvedThreads = isStale
         ? mergeCommentThreads(session.threads, nextThreads).threads
         : nextThreads;
@@ -833,6 +1010,7 @@ export async function startServer(
     const session = getOrCreateCommentSession(selection);
     res.json({
       version: session.version,
+      persisted: session.persisted,
       threads: session.threads,
     });
   });
@@ -842,8 +1020,9 @@ export async function startServer(
     const session = getOrCreateCommentSession(selection);
     res.type('text/plain');
 
-    if (session.threads.length > 0) {
-      const output = formatCommentsOutput(session.threads.map(toCommentThread));
+    const activeThreads = session.threads.filter((thread) => !thread.resolved);
+    if (activeThreads.length > 0) {
+      const output = formatCommentsOutput(activeThreads.map(toCommentThread));
       res.send(output);
     } else {
       res.send('');
@@ -983,8 +1162,9 @@ export async function startServer(
   // Function to output comments when server shuts down
   function outputFinalComments() {
     const session = getOrCreateCommentSession(currentCommentSelection);
-    if (session.threads.length > 0) {
-      console.log(formatCommentsOutput(session.threads.map(toCommentThread)));
+    const activeThreads = session.threads.filter((thread) => !thread.resolved);
+    if (activeThreads.length > 0) {
+      console.log(formatCommentsOutput(activeThreads.map(toCommentThread)));
     }
   }
 

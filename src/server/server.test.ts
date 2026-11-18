@@ -108,7 +108,137 @@ vi.mock('../cli/utils.js', async (importOriginal) => ({
   ...untrackedGit,
 }));
 
+// Comment files stay in memory so tests never write into this repository's git dir.
+const storedComments = vi.hoisted(() => new Map<string, unknown[]>());
+vi.mock('./comment-store.js', () => ({
+  CommentStore: class {
+    load(key: string) {
+      return storedComments.get(key) ?? null;
+    }
+    save(key: string, _selection: unknown, threads: unknown[]) {
+      storedComments.set(key, structuredClone(threads));
+    }
+  },
+}));
+
 describe('Server Integration Tests', () => {
+  describe('Comment history and state', () => {
+    let base: string;
+    let server: Awaited<ReturnType<typeof startServer>>['server'];
+
+    const json = async (path: string, method = 'GET', body?: unknown) => {
+      const response = await fetch(`${base}${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return { status: response.status, data: (await response.json()) as any };
+    };
+    const start = async () => {
+      const result = await startServer({
+        preferredPort: await getAvailablePort(4980),
+        openBrowser: false,
+      });
+      server = result.server;
+      base = `http://localhost:${result.port}`;
+    };
+    const stop = () =>
+      new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    const addThread = async () => {
+      await json('/api/comment-imports', 'POST', {
+        type: 'thread',
+        filePath: 'src/a.ts',
+        position: { side: 'new', line: 3 },
+        body: 'Rename this',
+        author: 'User',
+      });
+      const { data } = await json('/api/comments-json');
+      return data.threads[0].id as string;
+    };
+
+    beforeEach(async () => {
+      storedComments.clear();
+      await start();
+    });
+    afterEach(stop);
+
+    it('keeps threads across a restart', async () => {
+      await addThread();
+      await stop();
+      await start();
+
+      const { data } = await json('/api/comments-json');
+      expect(data.persisted).toBe(true);
+      expect(data.threads).toHaveLength(1);
+      expect(data.threads[0].messages[0].body).toBe('Rename this');
+    });
+
+    it('resolves with a note instead of deleting, and leaves it out of the output', async () => {
+      const id = await addThread();
+      const { data } = await json(`/api/comments/${id}`, 'PATCH', {
+        resolve: true,
+        by: 'Claude',
+        note: 'renamed',
+      });
+
+      expect(data.thread.resolved).toMatchObject({ by: 'Claude', note: 'renamed' });
+      expect(data.thread.messages[0].status.Claude.state).toBe('handled');
+      const output = await (await fetch(`${base}/api/comments-output`)).text();
+      expect(output).not.toContain('Rename this');
+    });
+
+    it('refuses an agent resolve on a todo thread unless forced', async () => {
+      const id = await addThread();
+      await json(`/api/comments/${id}`, 'PATCH', { todo: true, by: 'User' });
+
+      expect(
+        (await json(`/api/comments/${id}`, 'PATCH', { resolve: true, by: 'Claude' })).status,
+      ).toBe(409);
+      expect(
+        (await json(`/api/comments/${id}`, 'PATCH', { todo: false, by: 'Claude' })).status,
+      ).toBe(403);
+      const forced = await json(`/api/comments/${id}`, 'PATCH', {
+        resolve: true,
+        by: 'Claude',
+        force: true,
+      });
+      expect(forced.data.thread.resolved.by).toBe('Claude');
+      expect(forced.data.thread.todo).toBeUndefined();
+    });
+
+    it('moves agent status forward only, and a user reply reopens a resolved thread', async () => {
+      const id = await addThread();
+      await json(`/api/comments/${id}/status`, 'POST', { agent: 'Claude', state: 'working' });
+      const back = await json(`/api/comments/${id}/status`, 'POST', {
+        agent: 'Claude',
+        state: 'seen',
+      });
+      expect(back.data.thread.messages[0].status.Claude.state).toBe('working');
+
+      await json(`/api/comments/${id}`, 'PATCH', { resolve: true, by: 'User' });
+      const { data } = await json(`/api/comments/${id}/replies`, 'POST', {
+        body: 'Not quite',
+        author: 'User',
+      });
+
+      expect(data.thread.resolved).toBeUndefined();
+      expect(data.thread.messages[0].status.Claude.state).toBe('open');
+      expect(data.thread.messages[1].status).toBeUndefined();
+    });
+
+    it('an agent reply marks the thread handled and can flag a todo for the user', async () => {
+      const id = await addThread();
+      const { data } = await json(`/api/comments/${id}/replies`, 'POST', {
+        body: 'Which name?',
+        author: 'Claude',
+        todo: true,
+      });
+
+      expect(data.thread.messages[0].status.Claude.state).toBe('handled');
+      expect(data.thread.todo.by).toBe('Claude');
+    });
+  });
+
   describe('Comments API', () => {
     it('should accept properly formatted comments', async () => {
       const port = await getAvailablePort(4966);
@@ -365,6 +495,7 @@ describe('Server Integration Tests', () => {
     originalProcessExit = process.exit;
     process.exit = vi.fn() as any;
     parserInstances.length = 0;
+    storedComments.clear();
   });
 
   afterEach(async () => {

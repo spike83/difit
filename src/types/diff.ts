@@ -104,12 +104,33 @@ export interface LegacyDiffComment {
   codeSnapshot?: DiffCommentCodeSnapshot;
 }
 
+/** How far an agent got with a message; 'open' means reopened since the agent last looked. */
+export type AgentState = 'open' | 'seen' | 'working' | 'handled';
+
+export interface AgentStatus {
+  state: AgentState;
+  at: string;
+}
+
 export interface DiffCommentMessage {
   id: string;
   body: string;
   author?: string;
   createdAt: string;
   updatedAt: string;
+  /** Reader name -> when they read it. The author never needs an entry. */
+  readBy?: Record<string, string>;
+  /** Agent name -> its progress on this message. */
+  status?: Record<string, AgentStatus>;
+}
+
+export interface ThreadMark {
+  by: string;
+  at: string;
+}
+
+export interface ThreadResolution extends ThreadMark {
+  note?: string;
 }
 
 // New data structures for enhanced comment and viewed state management
@@ -124,6 +145,11 @@ export interface DiffCommentThread {
   codeSnapshot?: DiffCommentCodeSnapshot;
 
   messages: DiffCommentMessage[];
+
+  resolved?: ThreadResolution;
+  todo?: ThreadMark;
+  /** When resolved or todo last changed; the newer copy wins when two copies merge. */
+  stateAt?: string;
 }
 
 interface CommentImportBase {
@@ -200,6 +226,8 @@ export interface CommentThread {
   codeContent?: string;
   isOutdated?: boolean;
   messages: DiffCommentMessage[];
+  resolved?: ThreadResolution;
+  todo?: ThreadMark;
 }
 
 // Revision selector types

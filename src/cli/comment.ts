@@ -113,11 +113,12 @@ export function createCommentCommand(): Command {
 
   comment
     .command('resolve')
-    .alias('remove')
-    .description('Resolve (remove) comment threads on a running difit server')
+    .description('Resolve comment threads on a running difit server (they stay in the history)')
     .argument('<threadIds...>', 'thread IDs to resolve')
     .requiredOption('--port <port>', 'port of the running difit server', parseInt)
-    .action(async (threadIds: string[], opts: { port: number }) => {
+    .option('--by <name>', 'who resolves the threads', 'User')
+    .option('--note <text>', 'what was done, shown on the resolved thread')
+    .action(async (threadIds: string[], opts: { port: number; by: string; note?: string }) => {
       try {
         const results = await Promise.all(
           threadIds.map(
@@ -130,7 +131,11 @@ export function createCommentCommand(): Command {
             }> => {
               const response = await fetch(
                 `http://localhost:${opts.port}/api/comments/${encodeURIComponent(threadId)}`,
-                { method: 'DELETE' },
+                {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ resolve: true, by: opts.by, note: opts.note }),
+                },
               );
 
               if (response.ok) {

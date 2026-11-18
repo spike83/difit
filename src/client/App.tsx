@@ -13,6 +13,7 @@ import {
 } from '../types/diff';
 import { DEFAULT_DIFF_VIEW_MODE, normalizeDiffViewMode } from '../utils/diffMode';
 import { mergeCommentThreads } from '../utils/commentImports';
+import { type CommentFilter, matchesCommentFilter } from '../utils/commentState';
 import { isFileCommentLine } from '../utils/fileComments';
 import {
   createDiffSelection,
@@ -34,6 +35,7 @@ import { ReloadButton } from './components/ReloadButton';
 import { RevisionDetailModal } from './components/RevisionDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SparkleAnimation } from './components/SparkleAnimation';
+import { type CommentActions, CommentActionsProvider } from './contexts/CommentActionsContext';
 import { WordHighlightProvider } from './contexts/WordHighlightContext';
 import { useAppearanceSettings } from './hooks/useAppearanceSettings';
 import { useDiffComments } from './hooks/useDiffComments';
@@ -168,6 +170,11 @@ function App() {
   const [showSparkles, setShowSparkles] = useState(false);
   const [hasTriggeredSparkles, setHasTriggeredSparkles] = useState(false);
   const [isCommentsListOpen, setIsCommentsListOpen] = useState(false);
+  const [commentsListFilter, setCommentsListFilter] = useState<CommentFilter>('open');
+  const openCommentsList = useCallback((filter: CommentFilter = 'open') => {
+    setCommentsListFilter(filter);
+    setIsCommentsListOpen(true);
+  }, []);
   const [isRevisionModalOpen, setIsRevisionModalOpen] = useState(false);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const collapsedInitializedRef = useRef(false);
@@ -217,6 +224,10 @@ function App() {
     addThread,
     replyToThread,
     removeThread,
+    resolveThread,
+    reopenThread,
+    toggleTodo,
+    markMessagesRead,
     removeMessage,
     updateMessage,
     clearAllComments,
@@ -229,6 +240,11 @@ function App() {
     undefined, // branchToHash map - could be populated from server data
     diffData?.repositoryId, // Repository identifier for storage isolation
     resolvedSelection?.baseMode,
+  );
+
+  const commentActions = useMemo<CommentActions>(
+    () => ({ reopenThread, deleteThread: removeThread, toggleTodo, markRead: markMessagesRead }),
+    [markMessagesRead, removeThread, reopenThread, toggleTodo],
   );
 
   const showMobileCommentsBar = isMobile && threads.length > 0;
@@ -278,6 +294,8 @@ function App() {
     }
   }, [bootstrappedCommentsKey, commentsContextKey]);
 
+  // The server read this selection's comment file, so the browser's copy is only a cache.
+  const serverCommentsPersistedRef = useRef(false);
   const fetchServerThreads = useCallback(async (): Promise<DiffCommentThread[]> => {
     const response = await fetch(getCommentApiUrl('/api/comments-json'));
     if (!response.ok) {
@@ -286,11 +304,13 @@ function App() {
 
     const payload = (await response.json()) as {
       version?: number;
+      persisted?: boolean;
       threads?: DiffCommentThread[];
     };
     if (typeof payload.version === 'number') {
       serverCommentVersionRef.current = payload.version;
     }
+    serverCommentsPersistedRef.current = payload.persisted === true;
     return Array.isArray(payload.threads) ? payload.threads : [];
   }, [getCommentApiUrl]);
 
@@ -574,8 +594,18 @@ function App() {
         codeContent: thread.codeSnapshot?.content,
         isOutdated: isThreadOutdated(thread, fileLineIndexByPath.get(thread.filePath)),
         messages: thread.messages,
+        resolved: thread.resolved,
+        todo: thread.todo,
       })),
     [threads, fileLineIndexByPath],
+  );
+  const commentCounts = useMemo(
+    () => ({
+      open: normalizedThreads.filter((thread) => matchesCommentFilter(thread, 'open')).length,
+      unread: normalizedThreads.filter((thread) => matchesCommentFilter(thread, 'unread')).length,
+      todo: normalizedThreads.filter((thread) => matchesCommentFilter(thread, 'todo')).length,
+    }),
+    [normalizedThreads],
   );
   const showAuthorBadges = useMemo(
     () => hasMultipleCommentAuthors(normalizedThreads.flatMap((thread) => thread.messages)),
@@ -632,6 +662,7 @@ function App() {
   // The file under the mouse, looked up from the last pointer position: collapsing a file
   // slides the next one under a still mouse, and no mouseenter fires for that.
   const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const lastNavigatedThreadIdRef = useRef<string | null>(null);
   const filePathAtPointer = useCallback(() => {
     const pointer = pointerRef.current;
     const main = diffScrollContainerRef.current;
@@ -738,6 +769,8 @@ function App() {
           });
         }
       },
+      onNavigateUnread: (direction) => navigateUnread(direction),
+      onToggleTodo: () => toggleTodoAtPointer(),
       onCopyAllComments: () => {
         if (threads.length > 0) {
           void handleCopyAllComments();
@@ -1090,7 +1123,9 @@ function App() {
     const bootstrapComments = async () => {
       try {
         const serverThreads = await fetchServerThreads();
-        const nextThreads = shouldReplaceFromServer
+        // Local threads are merged in only until the server has a comment file (migration).
+        const replaceFromServer = shouldReplaceFromServer || serverCommentsPersistedRef.current;
+        const nextThreads = replaceFromServer
           ? serverThreads
           : mergeCommentThreads(serverThreads, threads).threads;
         if (cancelled) {
@@ -1100,10 +1135,7 @@ function App() {
         skipNextCommentSyncRef.current = true;
         replaceThreads(nextThreads);
 
-        if (
-          !shouldReplaceFromServer &&
-          JSON.stringify(serverThreads) !== JSON.stringify(nextThreads)
-        ) {
+        if (!replaceFromServer && JSON.stringify(serverThreads) !== JSON.stringify(nextThreads)) {
           await syncThreadsToServer(nextThreads);
         }
       } catch (commentsError) {
@@ -1265,6 +1297,7 @@ function App() {
 
   const handleNavigateToComment = (thread: CommentThread) => {
     if (!diffData) return;
+    lastNavigatedThreadIdRef.current = thread.id;
 
     if (isFileCommentLine(thread.line)) {
       scrollToFileFromList(thread.file);
@@ -1276,6 +1309,48 @@ function App() {
       setCursorPosition(position);
     }
   };
+
+  // u / Shift+U: the next or previous unread thread in diff order, after the last one jumped to.
+  function navigateUnread(direction: 'next' | 'prev') {
+    if (!diffData) return;
+    const fileOrder = new Map(diffData.files.map((file, index) => [file.path, index]));
+    const firstLine = (thread: CommentThread) =>
+      Array.isArray(thread.line) ? thread.line[0] : thread.line;
+    const ordered = [...normalizedThreads].sort(
+      (a, b) =>
+        (fileOrder.get(a.file) ?? Infinity) - (fileOrder.get(b.file) ?? Infinity) ||
+        firstLine(a) - firstLine(b) ||
+        a.createdAt.localeCompare(b.createdAt),
+    );
+    const current = ordered.findIndex((thread) => thread.id === lastNavigatedThreadIdRef.current);
+    const unread = ordered
+      .map((thread, index) => ({ thread, index }))
+      .filter(({ thread }) => matchesCommentFilter(thread, 'unread'));
+    if (unread.length === 0) return;
+    const target =
+      direction === 'next'
+        ? (unread.find(({ index }) => index > current) ?? unread[0])
+        : ([...unread].reverse().find(({ index }) => index < current) ?? unread[unread.length - 1]);
+    if (!target) return;
+    handleNavigateToComment(target.thread);
+    setTimeout(() => {
+      document
+        .getElementById(`comment-thread-${target.thread.id}`)
+        ?.scrollIntoView({ block: 'center' });
+    }, 50);
+  }
+
+  // t: the todo flag of the thread under the mouse, else of the last thread jumped to.
+  function toggleTodoAtPointer() {
+    const pointer = pointerRef.current;
+    const card = pointer
+      ? document.elementFromPoint(pointer.x, pointer.y)?.closest('[id^="comment-thread-"]')
+      : null;
+    const threadId = card
+      ? card.id.slice('comment-thread-'.length)
+      : lastNavigatedThreadIdRef.current;
+    if (threadId) toggleTodo(threadId);
+  }
 
   const handleOpenInEditor = useCallback(
     async (filePath: string, lineNumber: number) => {
@@ -1370,429 +1445,458 @@ function App() {
     settings.editor.argsTemplate.trim() !== '';
 
   return (
-    <WordHighlightProvider>
-      <div className="h-screen flex flex-col" onClickCapture={handleGlobalClick}>
-        <header
-          className={`bg-github-bg-secondary border-b border-github-border flex ${
-            isMobile ? 'flex-col' : 'flex-row items-center'
-          }`}
-        >
-          <div
-            className={`flex items-center justify-between w-full ${
-              isMobile ? 'px-3 py-2 gap-3' : 'px-4 py-3 gap-4 w-auto'
-            } ${!isDragging ? '!transition-all !duration-300 !ease-in-out' : ''}`}
-            style={{
-              width: isMobile ? '100%' : isFileTreeOpen ? `${sidebarWidth}px` : 'auto',
-              minWidth: isMobile ? '0px' : isFileTreeOpen ? '200px' : 'auto',
-              maxWidth: isMobile ? 'none' : isFileTreeOpen ? '600px' : 'none',
-            }}
-          >
-            <h1>
-              <Logo
-                style={{
-                  height: '18px',
-                  color: 'var(--color-github-text-secondary)',
-                }}
-              />
-            </h1>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setIsFileTreeOpen(!isFileTreeOpen)}
-                className="p-2 text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary rounded transition-colors"
-                title={isFileTreeOpen ? 'Collapse file tree' : 'Expand file tree'}
-                aria-expanded={isFileTreeOpen}
-                aria-controls="file-tree-panel"
-                aria-label="Toggle file tree panel"
-              >
-                {isFileTreeOpen ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
-              </button>
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2 text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary rounded transition-colors"
-                title="Settings"
-              >
-                <Settings size={18} />
-              </button>
-            </div>
-          </div>
-          {!isMobile && (
-            <div
-              className={`border-r border-github-border ${!isDragging ? '!transition-all !duration-300 !ease-in-out' : ''}`}
-              style={{
-                width: isFileTreeOpen ? '4px' : '0px',
-                height: 'calc(100% - 16px)',
-                margin: '8px 0',
-                transform: 'translateX(-2px)',
-              }}
-            />
-          )}
-          <div
-            className={`flex-1 flex flex-wrap items-center justify-between ${
-              isMobile ? 'px-3 pb-2 gap-3' : 'px-4 py-3 gap-4'
+    <CommentActionsProvider value={commentActions}>
+      <WordHighlightProvider>
+        <div className="h-screen flex flex-col" onClickCapture={handleGlobalClick}>
+          <header
+            className={`bg-github-bg-secondary border-b border-github-border flex ${
+              isMobile ? 'flex-col' : 'flex-row items-center'
             }`}
           >
-            <div className={`flex flex-wrap items-center ${isMobile ? 'gap-2' : 'gap-3'}`}>
-              {diffData.title && (
-                <span
-                  className="max-w-[40ch] truncate text-sm font-semibold text-github-text-primary"
-                  title={diffData.title}
-                  data-testid="session-title"
-                >
-                  {diffData.title}
-                </span>
-              )}
-              {!isMobile && (
-                <div className="flex bg-github-bg-tertiary border border-github-border rounded-md p-1">
-                  <button
-                    onClick={() => handleDiffModeChange('split')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${
-                      diffMode === 'split'
-                        ? 'bg-github-bg-primary text-github-text-primary shadow-sm'
-                        : 'text-github-text-secondary hover:text-github-text-primary'
-                    }`}
-                  >
-                    <Columns size={14} />
-                    Split
-                  </button>
-                  <button
-                    onClick={() => handleDiffModeChange('unified')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${
-                      diffMode === 'unified'
-                        ? 'bg-github-bg-primary text-github-text-primary shadow-sm'
-                        : 'text-github-text-secondary hover:text-github-text-primary'
-                    }`}
-                  >
-                    <AlignLeft size={14} />
-                    Unified
-                  </button>
-                </div>
-              )}
-              <Checkbox
-                checked={ignoreWhitespace}
-                onChange={setIgnoreWhitespace}
-                label="Ignore Whitespace"
-                title={ignoreWhitespace ? 'Show whitespace changes' : 'Ignore whitespace changes'}
-              />
-              {/* File Watch Reload Button */}
-              <ReloadButton
-                shouldReload={shouldReload}
-                isReloading={watchState.isReloading}
-                onReload={reload}
-                changeType={watchState.lastChangeType}
-                compact={isMobile}
-              />
-            </div>
             <div
-              className={`flex flex-wrap items-center text-sm text-github-text-secondary ${
-                isMobile ? 'gap-3' : 'gap-4'
-              }`}
+              className={`flex items-center justify-between w-full ${
+                isMobile ? 'px-3 py-2 gap-3' : 'px-4 py-3 gap-4 w-auto'
+              } ${!isDragging ? '!transition-all !duration-300 !ease-in-out' : ''}`}
+              style={{
+                width: isMobile ? '100%' : isFileTreeOpen ? `${sidebarWidth}px` : 'auto',
+                minWidth: isMobile ? '0px' : isFileTreeOpen ? '200px' : 'auto',
+                maxWidth: isMobile ? 'none' : isFileTreeOpen ? '600px' : 'none',
+              }}
             >
-              {!isMobile && threads.length > 0 && (
-                <CommentsDropdown
-                  commentsCount={threads.length}
-                  isCopiedAll={isCopiedAll}
-                  onCopyAll={handleCopyAllComments}
-                  onDeleteAll={clearAllComments}
-                  onViewAll={() => setIsCommentsListOpen(true)}
-                />
-              )}
-              <div className="flex flex-col gap-1 items-center">
-                <div className="text-xs relative">
-                  {viewedFilesInDiffCount === diffData.files.length
-                    ? 'All diffs difit-ed!'
-                    : `${viewedFilesInDiffCount} / ${diffData.files.length} files viewed`}
-                  <SparkleAnimation isActive={showSparkles} />
-                </div>
-                <div
-                  className="relative h-2 bg-github-bg-tertiary rounded-full overflow-hidden"
+              <h1>
+                <Logo
                   style={{
-                    width: '90px',
-                    border: '1px solid var(--color-github-border)',
+                    height: '18px',
+                    color: 'var(--color-github-text-secondary)',
                   }}
+                />
+              </h1>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setIsFileTreeOpen(!isFileTreeOpen)}
+                  className="p-2 text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary rounded transition-colors"
+                  title={isFileTreeOpen ? 'Collapse file tree' : 'Expand file tree'}
+                  aria-expanded={isFileTreeOpen}
+                  aria-controls="file-tree-panel"
+                  aria-label="Toggle file tree panel"
                 >
-                  <div
-                    className="absolute top-0 right-0 h-full transition-all duration-300 ease-out"
-                    style={{
-                      width: `${((diffData.files.length - viewedFilesInDiffCount) / diffData.files.length) * 100}%`,
-                      backgroundColor: (() => {
-                        const remainingPercent =
-                          ((diffData.files.length - viewedFilesInDiffCount) /
-                            diffData.files.length) *
-                          100;
-                        if (remainingPercent > 50) return 'var(--color-github-accent)'; // green
-                        if (remainingPercent > 20) return 'var(--color-github-warning)'; // yellow
-                        return 'var(--color-github-danger)'; // red
-                      })(),
-                    }}
-                  />
-                </div>
+                  {isFileTreeOpen ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
+                </button>
+                <button
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="p-2 text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary rounded transition-colors"
+                  title="Settings"
+                >
+                  <Settings size={18} />
+                </button>
               </div>
-              {revisionOptions ? (
-                <DiffQuickMenu
-                  options={revisionOptions}
-                  selection={selectedRevision}
-                  resolvedBaseRevision={resolvedBaseRevision}
-                  resolvedTargetRevision={resolvedTargetRevision}
-                  onSelectDiff={(selection) => void handleRevisionChange(selection)}
-                  onOpenAdvanced={() => setIsRevisionModalOpen(true)}
-                  compact={!isDesktop}
-                />
-              ) : (
-                <span className="text-xs">
-                  Reviewing:{' '}
-                  <code className="bg-github-bg-tertiary px-1.5 py-0.5 rounded text-xs text-github-text-primary">
-                    {diffData.commit.includes('...') ? (
-                      <>
-                        <span className="text-github-text-secondary font-medium">
-                          {diffData.commit.split('...')[0]}...
-                        </span>
-                        <span className="font-medium">{diffData.commit.split('...')[1]}</span>
-                      </>
-                    ) : (
-                      diffData.commit
-                    )}
-                  </code>
-                </span>
-              )}
             </div>
-          </div>
-        </header>
-        {revisionOptions && (
-          <RevisionDetailModal
-            key={isRevisionModalOpen ? getDiffSelectionKey(selectedRevision) : 'closed'}
-            isOpen={isRevisionModalOpen}
-            onClose={() => setIsRevisionModalOpen(false)}
-            options={revisionOptions}
-            selection={selectedRevision}
-            resolvedBaseRevision={resolvedBaseRevision}
-            resolvedTargetRevision={resolvedTargetRevision}
-            onApply={(selection) => void handleRevisionChange(selection)}
-          />
-        )}
-
-        {isMobile && isFileTreeOpen && (
-          <button
-            type="button"
-            aria-label="Close file tree"
-            className="fixed inset-0 bg-black/40 z-30"
-            onClick={() => setIsFileTreeOpen(false)}
-          />
-        )}
-
-        <div className="flex flex-1 overflow-hidden relative">
-          <div
-            className={`relative overflow-hidden ${!isDragging ? '!transition-all !duration-300 !ease-in-out' : ''}`}
-            style={{
-              width: isMobile ? '0px' : isFileTreeOpen ? `${sidebarWidth}px` : '0px',
-            }}
-          >
-            <aside
-              id="file-tree-panel"
-              className={`bg-github-bg-secondary overflow-y-auto flex flex-col ${
-                isMobile
-                  ? 'fixed inset-y-0 right-0 z-40 w-[min(85vw,360px)] border-l border-github-border transition-transform duration-300 ease-out'
-                  : 'relative border-r border-github-border'
+            {!isMobile && (
+              <div
+                className={`border-r border-github-border ${!isDragging ? '!transition-all !duration-300 !ease-in-out' : ''}`}
+                style={{
+                  width: isFileTreeOpen ? '4px' : '0px',
+                  height: 'calc(100% - 16px)',
+                  margin: '8px 0',
+                  transform: 'translateX(-2px)',
+                }}
+              />
+            )}
+            <div
+              className={`flex-1 flex flex-wrap items-center justify-between ${
+                isMobile ? 'px-3 pb-2 gap-3' : 'px-4 py-3 gap-4'
               }`}
-              style={{
-                width: isMobile ? 'min(85vw, 360px)' : `${sidebarWidth}px`,
-                minWidth: isMobile ? '0px' : '200px',
-                maxWidth: isMobile ? 'none' : '600px',
-                height: '100%',
-                transform: isMobile
-                  ? isFileTreeOpen
-                    ? 'translateX(0)'
-                    : 'translateX(100%)'
-                  : undefined,
-              }}
             >
-              <div className="flex-1 overflow-y-auto">
-                <FileList
-                  files={diffData.files}
-                  onScrollToFile={scrollToFileFromList}
-                  onFileSelected={isMobile ? handleMobileFileSelected : undefined}
-                  comments={normalizedThreads}
-                  reviewedFiles={viewedFiles}
-                  onToggleReviewed={toggleFileReviewed}
-                  onToggleFolderReviewed={toggleFolderReviewed}
-                  selectedFileIndex={
-                    currentFilePath
-                      ? diffData.files.findIndex((file) => file.path === currentFilePath)
-                      : null
-                  }
+              <div className={`flex flex-wrap items-center ${isMobile ? 'gap-2' : 'gap-3'}`}>
+                {diffData.title && (
+                  <span
+                    className="max-w-[40ch] truncate text-sm font-semibold text-github-text-primary"
+                    title={diffData.title}
+                    data-testid="session-title"
+                  >
+                    {diffData.title}
+                  </span>
+                )}
+                {!isMobile && (
+                  <div className="flex bg-github-bg-tertiary border border-github-border rounded-md p-1">
+                    <button
+                      onClick={() => handleDiffModeChange('split')}
+                      className={`px-3 py-1.5 text-xs font-medium rounded transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${
+                        diffMode === 'split'
+                          ? 'bg-github-bg-primary text-github-text-primary shadow-sm'
+                          : 'text-github-text-secondary hover:text-github-text-primary'
+                      }`}
+                    >
+                      <Columns size={14} />
+                      Split
+                    </button>
+                    <button
+                      onClick={() => handleDiffModeChange('unified')}
+                      className={`px-3 py-1.5 text-xs font-medium rounded transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${
+                        diffMode === 'unified'
+                          ? 'bg-github-bg-primary text-github-text-primary shadow-sm'
+                          : 'text-github-text-secondary hover:text-github-text-primary'
+                      }`}
+                    >
+                      <AlignLeft size={14} />
+                      Unified
+                    </button>
+                  </div>
+                )}
+                <Checkbox
+                  checked={ignoreWhitespace}
+                  onChange={setIgnoreWhitespace}
+                  label="Ignore Whitespace"
+                  title={ignoreWhitespace ? 'Show whitespace changes' : 'Ignore whitespace changes'}
+                />
+                {/* File Watch Reload Button */}
+                <ReloadButton
+                  shouldReload={shouldReload}
+                  isReloading={watchState.isReloading}
+                  onReload={reload}
+                  changeType={watchState.lastChangeType}
+                  compact={isMobile}
                 />
               </div>
-              {!isMobile && (
-                <div className="p-4 border-t border-github-border flex justify-between items-center">
-                  <button
-                    onClick={() => setIsHelpOpen(true)}
-                    className="flex items-center gap-1.5 text-github-text-secondary hover:text-github-text-primary transition-colors"
-                    title="Keyboard shortcuts (Shift+?)"
+              <div
+                className={`flex flex-wrap items-center text-sm text-github-text-secondary ${
+                  isMobile ? 'gap-3' : 'gap-4'
+                }`}
+              >
+                {(commentCounts.unread > 0 || commentCounts.todo > 0) && (
+                  <div className="flex items-center gap-1 text-xs" data-testid="comment-counters">
+                    {commentCounts.unread > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => openCommentsList('unread')}
+                        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-github-bg-tertiary"
+                        title="Show unread threads (u: next unread)"
+                      >
+                        <span className="h-2 w-2 rounded-full bg-blue-500" />
+                        {commentCounts.unread} unread
+                      </button>
+                    )}
+                    {commentCounts.unread > 0 && commentCounts.todo > 0 && <span>·</span>}
+                    {commentCounts.todo > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => openCommentsList('todo')}
+                        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-orange-500 hover:bg-github-bg-tertiary"
+                        title="Show todo threads"
+                      >
+                        🚩 {commentCounts.todo} {commentCounts.todo === 1 ? 'todo' : 'todos'}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {!isMobile && threads.length > 0 && (
+                  <CommentsDropdown
+                    commentsCount={commentCounts.open}
+                    isCopiedAll={isCopiedAll}
+                    onCopyAll={handleCopyAllComments}
+                    onDeleteAll={clearAllComments}
+                    onViewAll={() => openCommentsList()}
+                  />
+                )}
+                <div className="flex flex-col gap-1 items-center">
+                  <div className="text-xs relative">
+                    {viewedFilesInDiffCount === diffData.files.length
+                      ? 'All diffs difit-ed!'
+                      : `${viewedFilesInDiffCount} / ${diffData.files.length} files viewed`}
+                    <SparkleAnimation isActive={showSparkles} />
+                  </div>
+                  <div
+                    className="relative h-2 bg-github-bg-tertiary rounded-full overflow-hidden"
+                    style={{
+                      width: '90px',
+                      border: '1px solid var(--color-github-border)',
+                    }}
                   >
-                    <Keyboard size={16} />
-                    <span className="text-sm">Shortcuts</span>
-                  </button>
-                  <a
-                    href="https://github.com/yoshiko-pg/difit"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-github-text-secondary hover:text-github-text-primary transition-colors"
-                    title="View on GitHub"
-                  >
-                    <span className="text-sm">Star on GitHub</span>
-                    <GitHubIcon style={{ height: '18px', width: '18px' }} />
-                  </a>
+                    <div
+                      className="absolute top-0 right-0 h-full transition-all duration-300 ease-out"
+                      style={{
+                        width: `${((diffData.files.length - viewedFilesInDiffCount) / diffData.files.length) * 100}%`,
+                        backgroundColor: (() => {
+                          const remainingPercent =
+                            ((diffData.files.length - viewedFilesInDiffCount) /
+                              diffData.files.length) *
+                            100;
+                          if (remainingPercent > 50) return 'var(--color-github-accent)'; // green
+                          if (remainingPercent > 20) return 'var(--color-github-warning)'; // yellow
+                          return 'var(--color-github-danger)'; // red
+                        })(),
+                      }}
+                    />
+                  </div>
                 </div>
-              )}
-            </aside>
-          </div>
-
-          {!isMobile && (
-            <div
-              className={`bg-github-border hover:bg-github-text-muted cursor-col-resize ${!isDragging ? '!transition-all !duration-300 !ease-in-out' : ''}`}
-              style={{
-                width: isFileTreeOpen ? '4px' : '0px',
-              }}
-              onMouseDown={handleMouseDown}
-              title="Drag to resize file list"
+                {revisionOptions ? (
+                  <DiffQuickMenu
+                    options={revisionOptions}
+                    selection={selectedRevision}
+                    resolvedBaseRevision={resolvedBaseRevision}
+                    resolvedTargetRevision={resolvedTargetRevision}
+                    onSelectDiff={(selection) => void handleRevisionChange(selection)}
+                    onOpenAdvanced={() => setIsRevisionModalOpen(true)}
+                    compact={!isDesktop}
+                  />
+                ) : (
+                  <span className="text-xs">
+                    Reviewing:{' '}
+                    <code className="bg-github-bg-tertiary px-1.5 py-0.5 rounded text-xs text-github-text-primary">
+                      {diffData.commit.includes('...') ? (
+                        <>
+                          <span className="text-github-text-secondary font-medium">
+                            {diffData.commit.split('...')[0]}...
+                          </span>
+                          <span className="font-medium">{diffData.commit.split('...')[1]}</span>
+                        </>
+                      ) : (
+                        diffData.commit
+                      )}
+                    </code>
+                  </span>
+                )}
+              </div>
+            </div>
+          </header>
+          {revisionOptions && (
+            <RevisionDetailModal
+              key={isRevisionModalOpen ? getDiffSelectionKey(selectedRevision) : 'closed'}
+              isOpen={isRevisionModalOpen}
+              onClose={() => setIsRevisionModalOpen(false)}
+              options={revisionOptions}
+              selection={selectedRevision}
+              resolvedBaseRevision={resolvedBaseRevision}
+              resolvedTargetRevision={resolvedTargetRevision}
+              onApply={(selection) => void handleRevisionChange(selection)}
             />
           )}
 
-          <main
-            ref={diffScrollContainerRef}
-            className={`flex-1 overflow-y-auto ${showMobileCommentsBar ? 'pb-16' : ''}`}
-          >
-            {diffData.files.map((file, fileIndex) => {
-              const fileThreads = threadsByFile.get(file.path) ?? EMPTY_COMMENT_THREADS;
-              const mergedChunks =
-                getMergedChunksForVersion(mergedChunksState, diffDataVersion, file.path) ??
-                EMPTY_MERGED_CHUNKS;
-              const isRendered = renderedFilePaths.has(file.path);
-              return (
-                <div
-                  key={file.path}
-                  id={getFileElementId(file.path)}
-                  data-file-path={file.path}
-                  data-rendered={isRendered ? 'true' : 'false'}
-                  ref={(node) => registerLazyFileContainer(file.path, node)}
-                  data-current-file={file.path === currentFilePath ? '' : undefined}
-                  className="mb-6"
-                >
-                  {isRendered ? (
-                    <DiffViewer
-                      file={file}
-                      threads={fileThreads}
-                      showAuthorBadges={showAuthorBadges}
-                      diffMode={diffMode}
-                      reviewedFiles={viewedFiles}
-                      isChangedSinceViewed={changedSinceViewedFiles.has(file.path)}
-                      onToggleReviewed={handleViewedButtonToggle}
-                      collapsedFiles={collapsedFiles}
-                      onToggleCollapsed={toggleFileCollapsed}
-                      onToggleAllCollapsed={toggleAllFilesCollapsed}
-                      onAddComment={handleAddComment}
-                      onGenerateThreadPrompt={handleGenerateThreadPrompt}
-                      onRemoveThread={removeThread}
-                      onReplyToThread={handleReplyToThread}
-                      onRemoveMessage={removeMessage}
-                      onUpdateMessage={updateMessage}
-                      onOpenInEditor={canOpenInEditor ? handleOpenInEditor : undefined}
-                      syntaxTheme={settings.syntaxTheme}
-                      baseCommitish={diffData.baseCommitish}
-                      targetCommitish={diffData.targetCommitish}
-                      cursor={cursor?.fileIndex === fileIndex ? cursor : null}
-                      isFocused={cursor?.fileIndex === fileIndex}
-                      fileIndex={fileIndex}
-                      onLineClick={handleLineClick}
-                      commentTrigger={
-                        commentTrigger?.fileIndex === fileIndex ? commentTrigger : null
-                      }
-                      onCommentTriggerHandled={handleCommentTriggerHandled}
-                      expandToggleTrigger={
-                        expandToggleTrigger?.fileIndex === fileIndex ? expandToggleTrigger : null
-                      }
-                      onExpandToggleHandled={handleExpandToggleHandled}
-                      fileCommentTrigger={
-                        fileCommentTrigger?.fileIndex === fileIndex ? fileCommentTrigger : null
-                      }
-                      onFileCommentTriggerHandled={handleFileCommentTriggerHandled}
-                      mergedChunks={mergedChunks}
-                      expandLines={expandLines}
-                      expandAllBetweenChunks={expandAllBetweenChunks}
-                      expandAllLines={expandAllLines}
-                      collapseExpandedLines={collapseExpandedLines}
-                      prefetchFileContent={prefetchFileContent}
-                      isExpandLoading={isExpandLoading}
-                      diffVersion={diffDataVersion}
-                      markdownPreviewMode={markdownPreviewMode}
-                      onMarkdownPreviewModeChange={handleMarkdownPreviewModeChange}
-                    />
-                  ) : (
-                    <div className="bg-github-bg-secondary border border-github-border rounded-md px-4 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-xs uppercase tracking-wide text-github-text-muted">
-                            Deferred Rendering
-                          </div>
-                          <div className="text-sm font-mono text-github-text-primary truncate">
-                            {file.path}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => ensureFileRendered(file.path)}
-                          className="px-3 py-1.5 text-xs rounded border border-github-border text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary"
-                        >
-                          Load now
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </main>
-        </div>
-
-        {showMobileCommentsBar && (
-          <div className="fixed bottom-0 left-0 right-0 z-20 bg-github-bg-secondary border-t border-github-border px-4 py-2 flex justify-end">
-            <CommentsDropdown
-              commentsCount={threads.length}
-              isCopiedAll={isCopiedAll}
-              onCopyAll={handleCopyAllComments}
-              onDeleteAll={clearAllComments}
-              onViewAll={() => setIsCommentsListOpen(true)}
-              direction="up"
-              compact
+          {isMobile && isFileTreeOpen && (
+            <button
+              type="button"
+              aria-label="Close file tree"
+              className="fixed inset-0 bg-black/40 z-30"
+              onClick={() => setIsFileTreeOpen(false)}
             />
+          )}
+
+          <div className="flex flex-1 overflow-hidden relative">
+            <div
+              className={`relative overflow-hidden ${!isDragging ? '!transition-all !duration-300 !ease-in-out' : ''}`}
+              style={{
+                width: isMobile ? '0px' : isFileTreeOpen ? `${sidebarWidth}px` : '0px',
+              }}
+            >
+              <aside
+                id="file-tree-panel"
+                className={`bg-github-bg-secondary overflow-y-auto flex flex-col ${
+                  isMobile
+                    ? 'fixed inset-y-0 right-0 z-40 w-[min(85vw,360px)] border-l border-github-border transition-transform duration-300 ease-out'
+                    : 'relative border-r border-github-border'
+                }`}
+                style={{
+                  width: isMobile ? 'min(85vw, 360px)' : `${sidebarWidth}px`,
+                  minWidth: isMobile ? '0px' : '200px',
+                  maxWidth: isMobile ? 'none' : '600px',
+                  height: '100%',
+                  transform: isMobile
+                    ? isFileTreeOpen
+                      ? 'translateX(0)'
+                      : 'translateX(100%)'
+                    : undefined,
+                }}
+              >
+                <div className="flex-1 overflow-y-auto">
+                  <FileList
+                    files={diffData.files}
+                    onScrollToFile={scrollToFileFromList}
+                    onFileSelected={isMobile ? handleMobileFileSelected : undefined}
+                    comments={normalizedThreads}
+                    reviewedFiles={viewedFiles}
+                    onToggleReviewed={toggleFileReviewed}
+                    onToggleFolderReviewed={toggleFolderReviewed}
+                    selectedFileIndex={
+                      currentFilePath
+                        ? diffData.files.findIndex((file) => file.path === currentFilePath)
+                        : null
+                    }
+                  />
+                </div>
+                {!isMobile && (
+                  <div className="p-4 border-t border-github-border flex justify-between items-center">
+                    <button
+                      onClick={() => setIsHelpOpen(true)}
+                      className="flex items-center gap-1.5 text-github-text-secondary hover:text-github-text-primary transition-colors"
+                      title="Keyboard shortcuts (Shift+?)"
+                    >
+                      <Keyboard size={16} />
+                      <span className="text-sm">Shortcuts</span>
+                    </button>
+                    <a
+                      href="https://github.com/yoshiko-pg/difit"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-github-text-secondary hover:text-github-text-primary transition-colors"
+                      title="View on GitHub"
+                    >
+                      <span className="text-sm">Star on GitHub</span>
+                      <GitHubIcon style={{ height: '18px', width: '18px' }} />
+                    </a>
+                  </div>
+                )}
+              </aside>
+            </div>
+
+            {!isMobile && (
+              <div
+                className={`bg-github-border hover:bg-github-text-muted cursor-col-resize ${!isDragging ? '!transition-all !duration-300 !ease-in-out' : ''}`}
+                style={{
+                  width: isFileTreeOpen ? '4px' : '0px',
+                }}
+                onMouseDown={handleMouseDown}
+                title="Drag to resize file list"
+              />
+            )}
+
+            <main
+              ref={diffScrollContainerRef}
+              className={`flex-1 overflow-y-auto ${showMobileCommentsBar ? 'pb-16' : ''}`}
+            >
+              {diffData.files.map((file, fileIndex) => {
+                const fileThreads = threadsByFile.get(file.path) ?? EMPTY_COMMENT_THREADS;
+                const mergedChunks =
+                  getMergedChunksForVersion(mergedChunksState, diffDataVersion, file.path) ??
+                  EMPTY_MERGED_CHUNKS;
+                const isRendered = renderedFilePaths.has(file.path);
+                return (
+                  <div
+                    key={file.path}
+                    id={getFileElementId(file.path)}
+                    data-file-path={file.path}
+                    data-rendered={isRendered ? 'true' : 'false'}
+                    ref={(node) => registerLazyFileContainer(file.path, node)}
+                    data-current-file={file.path === currentFilePath ? '' : undefined}
+                    className="mb-6"
+                  >
+                    {isRendered ? (
+                      <DiffViewer
+                        file={file}
+                        threads={fileThreads}
+                        showAuthorBadges={showAuthorBadges}
+                        diffMode={diffMode}
+                        reviewedFiles={viewedFiles}
+                        isChangedSinceViewed={changedSinceViewedFiles.has(file.path)}
+                        onToggleReviewed={handleViewedButtonToggle}
+                        collapsedFiles={collapsedFiles}
+                        onToggleCollapsed={toggleFileCollapsed}
+                        onToggleAllCollapsed={toggleAllFilesCollapsed}
+                        onAddComment={handleAddComment}
+                        onGenerateThreadPrompt={handleGenerateThreadPrompt}
+                        onRemoveThread={resolveThread}
+                        onReplyToThread={handleReplyToThread}
+                        onRemoveMessage={removeMessage}
+                        onUpdateMessage={updateMessage}
+                        onOpenInEditor={canOpenInEditor ? handleOpenInEditor : undefined}
+                        syntaxTheme={settings.syntaxTheme}
+                        baseCommitish={diffData.baseCommitish}
+                        targetCommitish={diffData.targetCommitish}
+                        cursor={cursor?.fileIndex === fileIndex ? cursor : null}
+                        isFocused={cursor?.fileIndex === fileIndex}
+                        fileIndex={fileIndex}
+                        onLineClick={handleLineClick}
+                        commentTrigger={
+                          commentTrigger?.fileIndex === fileIndex ? commentTrigger : null
+                        }
+                        onCommentTriggerHandled={handleCommentTriggerHandled}
+                        expandToggleTrigger={
+                          expandToggleTrigger?.fileIndex === fileIndex ? expandToggleTrigger : null
+                        }
+                        onExpandToggleHandled={handleExpandToggleHandled}
+                        fileCommentTrigger={
+                          fileCommentTrigger?.fileIndex === fileIndex ? fileCommentTrigger : null
+                        }
+                        onFileCommentTriggerHandled={handleFileCommentTriggerHandled}
+                        mergedChunks={mergedChunks}
+                        expandLines={expandLines}
+                        expandAllBetweenChunks={expandAllBetweenChunks}
+                        expandAllLines={expandAllLines}
+                        collapseExpandedLines={collapseExpandedLines}
+                        prefetchFileContent={prefetchFileContent}
+                        isExpandLoading={isExpandLoading}
+                        diffVersion={diffDataVersion}
+                        markdownPreviewMode={markdownPreviewMode}
+                        onMarkdownPreviewModeChange={handleMarkdownPreviewModeChange}
+                      />
+                    ) : (
+                      <div className="bg-github-bg-secondary border border-github-border rounded-md px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-xs uppercase tracking-wide text-github-text-muted">
+                              Deferred Rendering
+                            </div>
+                            <div className="text-sm font-mono text-github-text-primary truncate">
+                              {file.path}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => ensureFileRendered(file.path)}
+                            className="px-3 py-1.5 text-xs rounded border border-github-border text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary"
+                          >
+                            Load now
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </main>
           </div>
-        )}
 
-        {isSettingsOpen && (
-          <SettingsModal
-            isOpen={isSettingsOpen}
-            onClose={() => setIsSettingsOpen(false)}
-            settings={settings}
-            onSettingsChange={updateSettings}
+          {showMobileCommentsBar && (
+            <div className="fixed bottom-0 left-0 right-0 z-20 bg-github-bg-secondary border-t border-github-border px-4 py-2 flex justify-end">
+              <CommentsDropdown
+                commentsCount={threads.length}
+                isCopiedAll={isCopiedAll}
+                onCopyAll={handleCopyAllComments}
+                onDeleteAll={clearAllComments}
+                onViewAll={() => openCommentsList()}
+                direction="up"
+                compact
+              />
+            </div>
+          )}
+
+          {isSettingsOpen && (
+            <SettingsModal
+              isOpen={isSettingsOpen}
+              onClose={() => setIsSettingsOpen(false)}
+              settings={settings}
+              onSettingsChange={updateSettings}
+            />
+          )}
+
+          <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+
+          <CommentsListModal
+            isOpen={isCommentsListOpen}
+            initialFilter={commentsListFilter}
+            onClose={() => setIsCommentsListOpen(false)}
+            onNavigate={handleNavigateToComment}
+            comments={normalizedThreads}
+            showAuthorBadges={showAuthorBadges}
+            onRemoveThread={resolveThread}
+            onGenerateThreadPrompt={handleGenerateThreadPrompt}
+            onReplyToThread={handleReplyToThread}
+            onRemoveMessage={removeMessage}
+            onUpdateMessage={updateMessage}
+            syntaxTheme={settings.syntaxTheme}
           />
-        )}
-
-        <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
-
-        <CommentsListModal
-          isOpen={isCommentsListOpen}
-          onClose={() => setIsCommentsListOpen(false)}
-          onNavigate={handleNavigateToComment}
-          comments={normalizedThreads}
-          showAuthorBadges={showAuthorBadges}
-          onRemoveThread={removeThread}
-          onGenerateThreadPrompt={handleGenerateThreadPrompt}
-          onReplyToThread={handleReplyToThread}
-          onRemoveMessage={removeMessage}
-          onUpdateMessage={updateMessage}
-          syntaxTheme={settings.syntaxTheme}
-        />
-      </div>
-    </WordHighlightProvider>
+        </div>
+      </WordHighlightProvider>
+    </CommentActionsProvider>
   );
 }
 
