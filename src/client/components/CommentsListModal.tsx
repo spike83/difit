@@ -50,11 +50,27 @@ export function CommentsListModal({
   useEffect(() => {
     if (isOpen) setFilter(initialFilter);
   }, [initialFilter, isOpen]);
+  // Reading a thread here marks it read; it stays in the Unread tab until the list closes or
+  // the tab changes, so it doesn't vanish under the mouse.
+  const [keptIds, setKeptIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setKeptIds(
+      isOpen && filter === 'unread'
+        ? new Set(
+            comments
+              .filter((thread) => matchesCommentFilter(thread, 'unread'))
+              .map((thread) => thread.id),
+          )
+        : new Set(),
+    );
+    // Only when the tab opens: later reads must not shrink the kept set.
+    // oxlint-disable-next-line react/exhaustive-deps
+  }, [filter, isOpen]);
   const commentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const { enableScope, disableScope } = useHotkeysContext();
 
   const sortedThreads = comments
-    .filter((thread) => matchesCommentFilter(thread, filter))
+    .filter((thread) => matchesCommentFilter(thread, filter) || keptIds.has(thread.id))
     .sort((a, b) => {
       const fileCompare = a.file.localeCompare(b.file);
       if (fileCompare !== 0) return fileCompare;

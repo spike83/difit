@@ -22,6 +22,7 @@ import {
 import { DEFAULT_DIFF_VIEW_MODE, normalizeDiffViewMode } from '../utils/diffMode';
 import { mergeCommentThreads } from '../utils/commentImports';
 import { type CommentFilter, matchesCommentFilter } from '../utils/commentState';
+import { describeViewedFileChange } from '../utils/viewedFileChanges';
 import { isFileCommentLine } from '../utils/fileComments';
 import {
   createDiffSelection,
@@ -51,7 +52,7 @@ import { useExpandedLines, type MergedChunk } from './hooks/useExpandedLines';
 import { useFileWatch } from './hooks/useFileWatch';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
 import { useLazyDiffRendering } from './hooks/useLazyDiffRendering';
-import { useViewedFiles } from './hooks/useViewedFiles';
+import { type ViewedFileChange, useViewedFiles } from './hooks/useViewedFiles';
 import { useViewport } from './hooks/useViewport';
 import { fetchClientSettings, saveClientSettings } from './services/userSettings';
 import { hasMultipleCommentAuthors } from './utils/commentAuthors';
@@ -232,6 +233,7 @@ function App() {
     reopenThread,
     toggleTodo,
     markMessagesRead,
+    addFileNotes,
     removeMessage,
     updateMessage,
     clearAllComments,
@@ -360,6 +362,23 @@ function App() {
     [getCommentApiUrl, replaceThreads],
   );
 
+  // A viewed file that changed gets a note on why it is unviewed again. Notes wait until the
+  // comments are loaded, so the server's copy doesn't replace them.
+  const [pendingFileNotes, setPendingFileNotes] = useState<{ filePath: string; body: string }[]>(
+    [],
+  );
+  const handleViewedFilesChanged = useCallback((changes: ViewedFileChange[]) => {
+    const changedPaths = new Set(changes.map(({ file }) => file.path));
+    setCollapsedFiles((prev) => new Set([...prev].filter((path) => !changedPaths.has(path))));
+    setPendingFileNotes((prev) => [
+      ...prev,
+      ...changes.map(({ file, previous }) => ({
+        filePath: file.path,
+        body: describeViewedFileChange(file, previous),
+      })),
+    ]);
+  }, []);
+
   // Viewed files management
   const {
     viewedFiles,
@@ -377,6 +396,8 @@ function App() {
     diffData?.repositoryId, // Repository identifier for storage isolation
     settings.autoViewedPatterns,
     resolvedSelection?.baseMode,
+    String(diffData?.ignoreWhitespace ?? false),
+    handleViewedFilesChanged,
   );
 
   // Storage keeps a viewed record for a path even after it leaves the diff
@@ -1184,6 +1205,12 @@ function App() {
     syncThreadsToServer,
     threads,
   ]);
+
+  useEffect(() => {
+    if (!hasBootstrappedComments || pendingFileNotes.length === 0) return;
+    addFileNotes(pendingFileNotes);
+    setPendingFileNotes([]);
+  }, [addFileNotes, hasBootstrappedComments, pendingFileNotes]);
 
   // Trigger sparkle animation when all files are viewed
   useEffect(() => {

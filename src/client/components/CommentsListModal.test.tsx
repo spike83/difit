@@ -313,6 +313,40 @@ describe('CommentsListModal', () => {
     expect(screen.getByText('Resolved by Claude: fixed')).toBeInTheDocument();
   });
 
+  it('keeps a thread read in the Unread tab until the tab changes', async () => {
+    const user = userEvent.setup();
+    const props = {
+      isOpen: true,
+      onClose: vi.fn(),
+      onNavigate: vi.fn(),
+      onRemoveThread: mockRemoveThread,
+      onGenerateThreadPrompt: mockGenerateThreadPrompt,
+      onReplyToThread: mockReplyToThread,
+      onRemoveMessage: mockRemoveMessage,
+      onUpdateMessage: mockUpdateMessage,
+      initialFilter: 'unread' as const,
+    };
+    const { rerender } = render(<CommentsListModal {...props} comments={mockThreads} />, {
+      wrapper,
+    });
+    expect(screen.getByText('First root comment')).toBeInTheDocument();
+
+    const [first, ...rest] = mockThreads;
+    const read = {
+      ...first!,
+      messages: first!.messages.map((message) => ({
+        ...message,
+        readBy: { User: '2024-01-02T00:00:00Z' },
+      })),
+    };
+    rerender(<CommentsListModal {...props} comments={[read, ...rest]} />);
+    expect(screen.getByText('First root comment')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /Open/ }));
+    await user.click(screen.getByRole('tab', { name: /Unread/ }));
+    expect(screen.queryByText('First root comment')).not.toBeInTheDocument();
+  });
+
   it('shows empty state when there are no threads', () => {
     render(
       <CommentsListModal

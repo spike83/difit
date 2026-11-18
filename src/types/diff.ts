@@ -177,6 +177,8 @@ export interface ViewedFileRecord {
   filePath: string;
   viewedAt: string; // ISO 8601 format
   diffContentHash: string; // SHA-256 hash
+  /** The added/removed lines when it was marked viewed, to tell what changed later. */
+  changeLines?: string[];
 }
 
 export interface ViewedHashIndexEntry {

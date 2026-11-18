@@ -762,4 +762,57 @@ describe('useViewedFiles', () => {
       expect(result.current.changedSinceViewedFiles.has('src/untouched.ts')).toBe(false);
     });
   });
+
+  describe('a viewed file that changes after a reload', () => {
+    const viewedRecord = (): ViewedFileRecord => ({
+      filePath: 'a.ts',
+      viewedAt: '2024-01-01T00:00:00Z',
+      diffContentHash: hashFor('a.ts', 'modified'),
+      changeLines: ['+one'],
+    });
+    const renderViewed = (onChanged: (changes: unknown[]) => void) =>
+      renderHook(
+        ({ files, variant }: { files: DiffFile[]; variant: string }) =>
+          useViewedFiles(
+            'main',
+            'working',
+            'c1',
+            undefined,
+            files,
+            'repo',
+            [],
+            undefined,
+            variant,
+            onChanged,
+          ),
+        { initialProps: { files: [createMockDiffFile('a.ts', 'modified')], variant: 'false' } },
+      );
+
+    it('is unviewed and reported with its snapshot', async () => {
+      mockGetViewedFiles.mockReturnValue([viewedRecord()]);
+      const onChanged = vi.fn();
+      const { result, rerender } = renderViewed(onChanged);
+      await waitFor(() => expect(result.current.viewedFiles.has('a.ts')).toBe(true));
+
+      const changed = createMockDiffFile('a.ts', 'added');
+      rerender({ files: [changed], variant: 'false' });
+
+      await waitFor(() => expect(result.current.viewedFiles.has('a.ts')).toBe(false));
+      expect(result.current.changedSinceViewedFiles.has('a.ts')).toBe(true);
+      expect(onChanged).toHaveBeenCalledWith([{ file: changed, previous: ['+one'] }]);
+    });
+
+    it('stays viewed when only the diff settings changed', async () => {
+      mockGetViewedFiles.mockReturnValue([viewedRecord()]);
+      const onChanged = vi.fn();
+      const { result, rerender } = renderViewed(onChanged);
+      await waitFor(() => expect(result.current.viewedFiles.has('a.ts')).toBe(true));
+
+      rerender({ files: [createMockDiffFile('a.ts', 'added')], variant: 'true' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(result.current.viewedFiles.has('a.ts')).toBe(true);
+      expect(onChanged).not.toHaveBeenCalled();
+    });
+  });
 });

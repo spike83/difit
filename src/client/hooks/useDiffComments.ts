@@ -21,9 +21,11 @@ import {
   markRead,
   reopenThread as reopen,
   resolveThread as resolve,
+  DIFIT_AUTHOR,
   setTodo,
   USER_AUTHOR,
 } from '../../utils/commentState';
+import { FILE_COMMENT_LINE } from '../../utils/fileComments';
 import { storageService } from '../services/StorageService';
 import { getLanguageFromPath } from '../utils/diffUtils';
 
@@ -55,6 +57,8 @@ interface UseDiffCommentsReturn {
   reopenThread: (threadId: string) => void;
   toggleTodo: (threadId: string) => void;
   markMessagesRead: (threadId: string, messageIds: string[]) => void;
+  /** difit's own notes on whole files, added to its open note thread of the file if there is one. */
+  addFileNotes: (notes: { filePath: string; body: string }[]) => void;
   updateComment: (commentId: string, newBody: string) => void;
   removeMessage: (threadId: string, messageId: string) => void;
   updateMessage: (threadId: string, messageId: string, newBody: string) => void;
@@ -294,6 +298,47 @@ export function useDiffComments(
     [updateThread],
   );
 
+  const addFileNotes = useCallback(
+    (notes: { filePath: string; body: string }[]) => {
+      if (notes.length === 0) return;
+      let newThreads = threads;
+      for (const { filePath, body } of notes) {
+        const now = new Date().toISOString();
+        const message = {
+          id: createId(),
+          body,
+          author: DIFIT_AUTHOR,
+          createdAt: now,
+          updatedAt: now,
+        };
+        const noteThread = newThreads.find(
+          (thread) =>
+            !thread.resolved &&
+            thread.filePath === filePath &&
+            thread.position.line === FILE_COMMENT_LINE &&
+            thread.messages[0]?.author === DIFIT_AUTHOR,
+        );
+        newThreads = noteThread
+          ? newThreads.map((thread) =>
+              thread === noteThread ? addReply(thread, message, now) : thread,
+            )
+          : [
+              ...newThreads,
+              {
+                id: message.id,
+                filePath,
+                createdAt: now,
+                updatedAt: now,
+                position: { side: 'new', line: FILE_COMMENT_LINE },
+                messages: [message],
+              },
+            ];
+      }
+      saveThreads(newThreads);
+    },
+    [saveThreads, threads],
+  );
+
   const markMessagesRead = useCallback(
     (threadId: string, messageIds: string[]) =>
       updateThread(threadId, (thread) =>
@@ -511,6 +556,7 @@ export function useDiffComments(
     reopenThread,
     toggleTodo,
     markMessagesRead,
+    addFileNotes,
     updateComment,
     removeMessage,
     updateMessage,

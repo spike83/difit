@@ -8,6 +8,8 @@ import type {
 
 // Messages from the browser carry this author; older ones carry none.
 export const USER_AUTHOR = 'User';
+// Notes difit writes itself, e.g. that a viewed file changed.
+export const DIFIT_AUTHOR = 'difit';
 
 const STATE_RANK: Record<AgentState, number> = { open: 0, seen: 1, working: 2, handled: 3 };
 
@@ -69,7 +71,9 @@ export function addReply(
   const active = thread.resolved ? reopenThread(thread, at) : thread;
   const withReply = { ...active, updatedAt: at, messages: [...active.messages, message] };
   const author = authorOf(message);
-  return author === USER_AUTHOR ? withReply : setAgentStatus(withReply, author, 'handled', at);
+  return author === USER_AUTHOR || author === DIFIT_AUTHOR
+    ? withReply
+    : setAgentStatus(withReply, author, 'handled', at);
 }
 
 /** Move the agent forward on every message it did not write; never moves back. */
