@@ -273,6 +273,44 @@ describe('DiffChunk text selection comments', () => {
     });
   });
 
+  it('moves the button with the selection when the diff scrolls, but not on page scrolls', () => {
+    let rangeTop = 300;
+    const rectSpy = vi
+      .spyOn(Range.prototype, 'getBoundingClientRect')
+      .mockImplementation(() => ({ top: rangeTop, left: 40 }) as DOMRect);
+    const { container } = renderWithProviders(
+      <DiffChunk
+        chunk={testChunk}
+        chunkIndex={0}
+        threads={[]}
+        mode="unified"
+        onAddComment={vi.fn()}
+        onGenerateThreadPrompt={() => ''}
+        onRemoveThread={noop}
+        onReplyToThread={asyncNoop}
+        onRemoveMessage={noop}
+        onUpdateMessage={noop}
+        filename="notes.txt"
+      />,
+    );
+
+    const cells = container.querySelectorAll('[data-code-side="new"]');
+    fireEvent.mouseDown(cells[1]!);
+    selectText(cells[1]!, cells[2]!);
+    fireEvent.mouseUp(document);
+    const button = screen.getByRole('button', { name: 'Comment on L11-L12' });
+    const startTop = parseFloat(button.style.top);
+
+    rangeTop = 200;
+    fireEvent.scroll(container);
+    expect(parseFloat(button.style.top)).toBe(startTop - 100);
+
+    rangeTop = 150;
+    fireEvent.scroll(document);
+    expect(parseFloat(button.style.top)).toBe(startTop - 100);
+    rectSpy.mockRestore();
+  });
+
   it('keeps a split-view selection on the side the drag started on', () => {
     const { container } = renderWithProviders(
       <SideBySideDiffChunk

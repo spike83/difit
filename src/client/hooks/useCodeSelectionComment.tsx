@@ -38,6 +38,8 @@ export function useCodeSelectionComment(
   const containerRef = useRef<HTMLDivElement>(null);
   const selectingSideRef = useRef<DiffSide | null>(null);
   const [target, setTarget] = useState<SelectionTarget | null>(null);
+  // The selection and where it was on screen, so the button can follow it when the diff scrolls.
+  const anchorRef = useRef<{ range: Range; top: number; left: number } | null>(null);
 
   const onMouseDown = (event: React.MouseEvent<HTMLElement>) => {
     const side = (event.target as Element)
@@ -75,6 +77,8 @@ export function useCodeSelectionComment(
       return;
     }
     const lines = onSide.map(({ cell }) => Number(cell.getAttribute('data-code-line')));
+    const rect = range.getBoundingClientRect();
+    anchorRef.current = { range: range.cloneRange(), top: rect.top, left: rect.left };
     setTarget({
       side,
       start: Math.min(...lines),
@@ -90,6 +94,28 @@ export function useCodeSelectionComment(
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [handleMouseUp]);
+
+  // The diff scrolls inside its own container, not the page the button is placed on.
+  const isShown = target !== null;
+  useEffect(() => {
+    if (!isShown) return;
+    const follow = (event: Event) => {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.range.getBoundingClientRect();
+      const dy = rect.top - anchor.top;
+      const dx = rect.left - anchor.left;
+      anchor.top = rect.top;
+      anchor.left = rect.left;
+      // A page scroll carries the button along already.
+      if (event.target === document || (dy === 0 && dx === 0)) return;
+      setTarget((current) =>
+        current ? { ...current, top: current.top + dy, left: current.left + dx } : current,
+      );
+    };
+    document.addEventListener('scroll', follow, true);
+    return () => document.removeEventListener('scroll', follow, true);
+  }, [isShown]);
 
   useEffect(() => {
     if (!target) return;
