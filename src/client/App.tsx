@@ -626,36 +626,40 @@ function App() {
     handleCommentsChanged,
   );
 
-  // The file under the mouse, for `v` without a cursor and for the hover marker. Looked up
-  // from the last pointer position: collapsing a file slides the next one under a still
-  // mouse, and no mouseenter fires for that.
+  // The file under the mouse, looked up from the last pointer position: collapsing a file
+  // slides the next one under a still mouse, and no mouseenter fires for that.
   const pointerRef = useRef<{ x: number; y: number } | null>(null);
-  const fileAtPointer = useCallback(() => {
+  const filePathAtPointer = useCallback(() => {
     const pointer = pointerRef.current;
     const main = diffScrollContainerRef.current;
     if (!pointer || !main) return null;
     const section = document
       .elementFromPoint(pointer.x, pointer.y)
       ?.closest<HTMLElement>('[data-file-path]');
-    return section && main.contains(section) ? section : null;
+    return section && main.contains(section) ? (section.dataset.filePath ?? null) : null;
   }, []);
+
+  // The file `v` acts on without a cursor, marked in the diff and the file list: the one
+  // under the mouse, else the one last hovered or clicked in the file list.
+  const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
+  const currentFilePathRef = useRef(currentFilePath);
+  currentFilePathRef.current = currentFilePath;
   const getHoveredFileIndex = useCallback(() => {
-    const path = fileAtPointer()?.dataset.filePath;
+    const path = filePathAtPointer() ?? currentFilePathRef.current;
     const index = path ? (diffData?.files.findIndex((file) => file.path === path) ?? -1) : -1;
     return index >= 0 ? index : null;
-  }, [fileAtPointer, diffData]);
-
-  // The file list keeps marking the last hovered file while the mouse is elsewhere
-  const [lastHoveredFilePath, setLastHoveredFilePath] = useState<string | null>(null);
-  const markedFileRef = useRef<HTMLElement | null>(null);
+  }, [filePathAtPointer, diffData]);
   const markHoveredFile = useCallback(() => {
-    const section = fileAtPointer();
-    if (section === markedFileRef.current) return;
-    markedFileRef.current?.removeAttribute('data-hovered');
-    section?.setAttribute('data-hovered', '');
-    markedFileRef.current = section;
-    if (section?.dataset.filePath) setLastHoveredFilePath(section.dataset.filePath);
-  }, [fileAtPointer]);
+    const path = filePathAtPointer();
+    if (path) setCurrentFilePath(path);
+  }, [filePathAtPointer]);
+  const scrollToFileFromList = useCallback(
+    (path: string) => {
+      setCurrentFilePath(path);
+      scrollToFileRestoringPosition(path);
+    },
+    [scrollToFileRestoringPosition],
+  );
 
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
@@ -1575,7 +1579,7 @@ function App() {
               <div className="flex-1 overflow-y-auto">
                 <FileList
                   files={diffData.files}
-                  onScrollToFile={scrollToFileRestoringPosition}
+                  onScrollToFile={scrollToFileFromList}
                   onFileSelected={isMobile ? handleMobileFileSelected : undefined}
                   comments={normalizedThreads}
                   reviewedFiles={viewedFiles}
@@ -1583,8 +1587,8 @@ function App() {
                   onToggleFolderReviewed={toggleFolderReviewed}
                   selectedFileIndex={
                     cursor?.fileIndex ??
-                    (lastHoveredFilePath
-                      ? diffData.files.findIndex((file) => file.path === lastHoveredFilePath)
+                    (currentFilePath
+                      ? diffData.files.findIndex((file) => file.path === currentFilePath)
                       : null)
                   }
                 />
@@ -1642,7 +1646,11 @@ function App() {
                   data-file-path={file.path}
                   data-rendered={isRendered ? 'true' : 'false'}
                   ref={(node) => registerLazyFileContainer(file.path, node)}
-                  data-cursor-file={cursor?.fileIndex === fileIndex ? '' : undefined}
+                  data-current-file={
+                    (cursor ? cursor.fileIndex === fileIndex : file.path === currentFilePath)
+                      ? ''
+                      : undefined
+                  }
                   className="mb-6"
                 >
                   {isRendered ? (
