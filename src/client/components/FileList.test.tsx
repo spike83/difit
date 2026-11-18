@@ -165,4 +165,28 @@ describe('FileList', () => {
     fireEvent.click(checkbox);
     expect(onToggleFolderReviewed).toHaveBeenCalledWith('src', false);
   });
+
+  it('marks the current file and scrolls its row into view', () => {
+    const props = {
+      files: [createFile('a.ts'), createFile('b.ts')],
+      onScrollToFile: vi.fn(),
+      comments: [],
+      reviewedFiles: new Set<string>(),
+      onToggleReviewed: vi.fn(),
+      onToggleFolderReviewed: vi.fn(),
+    };
+    const { rerender } = render(<FileList {...props} selectedFileIndex={null} />);
+    const row = getTreeRow('b.ts');
+    const container = row.closest<HTMLElement>('.overflow-y-auto') as HTMLElement;
+    Object.defineProperty(row, 'offsetTop', { value: 500 });
+    Object.defineProperty(row, 'offsetHeight', { value: 36 });
+    Object.defineProperty(container, 'clientHeight', { value: 200 });
+    container.scrollTo = vi.fn();
+
+    rerender(<FileList {...props} selectedFileIndex={1} />);
+
+    expect(row).toHaveClass('current-file-row');
+    expect(getTreeRow('a.ts')).not.toHaveClass('current-file-row');
+    expect(container.scrollTo).toHaveBeenCalledWith({ top: 336 });
+  });
 });

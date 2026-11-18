@@ -12,7 +12,15 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
 } from 'lucide-react';
-import { memo, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from 'react';
 
 import { type DiffFile, type CommentThread } from '../../types/diff';
 import { isSafariBrowser } from '../utils/browser';
@@ -246,6 +254,25 @@ export const FileList = memo(function FileList({
     );
   }, [fileTree, filterText]);
 
+  // Keep the current file's row in view, below the sticky directory headers above it
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const row = container?.querySelector<HTMLElement>('[data-current-file="true"]');
+    if (!container || !row) return;
+    const dirRowHeight =
+      container.querySelector<HTMLElement>('[data-dir-header="true"]')?.offsetHeight ?? 0;
+    const stickyHeight = shouldUseStickyDirectoryHeaders
+      ? Number.parseInt(row.dataset.depth || '0', 10) * dirRowHeight
+      : 0;
+    const top = row.offsetTop - stickyHeight;
+    const bottom = row.offsetTop + row.offsetHeight;
+    if (top < container.scrollTop) {
+      container.scrollTo({ top });
+    } else if (bottom > container.scrollTop + container.clientHeight) {
+      container.scrollTo({ top: bottom - container.clientHeight });
+    }
+  }, [selectedFileIndex, shouldUseStickyDirectoryHeaders]);
+
   const getFileIcon = (status: DiffFile['status']) => {
     switch (status) {
       case 'added':
@@ -407,8 +434,9 @@ export const FileList = memo(function FileList({
           key={`file:${file.path}`}
           className={`flex items-center gap-2 px-4 py-2 hover:bg-github-bg-tertiary cursor-pointer transition-colors ${
             isReviewed ? 'opacity-70' : ''
-          } ${isSelected ? 'bg-github-bg-tertiary' : ''}`}
+          } ${isSelected ? 'current-file-row' : ''}`}
           data-file-row="true"
+          data-current-file={isSelected ? 'true' : undefined}
           data-tree-row="true"
           data-depth={depth}
           style={{ paddingLeft: getTreeRowPaddingLeft(depth) }}

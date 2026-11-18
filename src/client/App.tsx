@@ -626,9 +626,63 @@ function App() {
     handleCommentsChanged,
   );
 
-  // Track which file the mouse is over so `v` works without a cursor
-  const hoveredFileIndexRef = useRef<number | null>(null);
-  const getHoveredFileIndex = useCallback(() => hoveredFileIndexRef.current, []);
+  // The file under the mouse, for `v` without a cursor and for the hover marker. Looked up
+  // from the last pointer position: collapsing a file slides the next one under a still
+  // mouse, and no mouseenter fires for that.
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const fileAtPointer = useCallback(() => {
+    const pointer = pointerRef.current;
+    const main = diffScrollContainerRef.current;
+    if (!pointer || !main) return null;
+    const section = document
+      .elementFromPoint(pointer.x, pointer.y)
+      ?.closest<HTMLElement>('[data-file-path]');
+    return section && main.contains(section) ? section : null;
+  }, []);
+  const getHoveredFileIndex = useCallback(() => {
+    const path = fileAtPointer()?.dataset.filePath;
+    const index = path ? (diffData?.files.findIndex((file) => file.path === path) ?? -1) : -1;
+    return index >= 0 ? index : null;
+  }, [fileAtPointer, diffData]);
+
+  // The file list keeps marking the last hovered file while the mouse is elsewhere
+  const [lastHoveredFilePath, setLastHoveredFilePath] = useState<string | null>(null);
+  const markedFileRef = useRef<HTMLElement | null>(null);
+  const markHoveredFile = useCallback(() => {
+    const section = fileAtPointer();
+    if (section === markedFileRef.current) return;
+    markedFileRef.current?.removeAttribute('data-hovered');
+    section?.setAttribute('data-hovered', '');
+    markedFileRef.current = section;
+    if (section?.dataset.filePath) setLastHoveredFilePath(section.dataset.filePath);
+  }, [fileAtPointer]);
+
+  useEffect(() => {
+    const onMouseMove = (event: MouseEvent) => {
+      pointerRef.current = { x: event.clientX, y: event.clientY };
+      markHoveredFile();
+    };
+    const onMouseOut = (event: MouseEvent) => {
+      if (event.relatedTarget) return;
+      // Left the window
+      pointerRef.current = null;
+      markHoveredFile();
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseout', onMouseOut);
+    document.addEventListener('scroll', markHoveredFile, true);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseout', onMouseOut);
+      document.removeEventListener('scroll', markHoveredFile, true);
+    };
+  }, [markHoveredFile]);
+
+  // Collapsing or expanding a file moves the others under the mouse
+  useEffect(() => {
+    const frame = requestAnimationFrame(markHoveredFile);
+    return () => cancelAnimationFrame(frame);
+  }, [collapsedFiles, viewedFiles, markHoveredFile]);
 
   // Files shown whole have no hunks worth stepping through
   const isShownWhole = useCallback(
@@ -1527,7 +1581,12 @@ function App() {
                   reviewedFiles={viewedFiles}
                   onToggleReviewed={toggleFileReviewed}
                   onToggleFolderReviewed={toggleFolderReviewed}
-                  selectedFileIndex={cursor?.fileIndex ?? null}
+                  selectedFileIndex={
+                    cursor?.fileIndex ??
+                    (lastHoveredFilePath
+                      ? diffData.files.findIndex((file) => file.path === lastHoveredFilePath)
+                      : null)
+                  }
                 />
               </div>
               {!isMobile && (
@@ -1583,15 +1642,8 @@ function App() {
                   data-file-path={file.path}
                   data-rendered={isRendered ? 'true' : 'false'}
                   ref={(node) => registerLazyFileContainer(file.path, node)}
+                  data-cursor-file={cursor?.fileIndex === fileIndex ? '' : undefined}
                   className="mb-6"
-                  onMouseEnter={() => {
-                    hoveredFileIndexRef.current = fileIndex;
-                  }}
-                  onMouseLeave={() => {
-                    if (hoveredFileIndexRef.current === fileIndex) {
-                      hoveredFileIndexRef.current = null;
-                    }
-                  }}
                 >
                   {isRendered ? (
                     <DiffViewer

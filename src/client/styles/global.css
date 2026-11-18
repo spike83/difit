@@ -148,6 +148,23 @@ tr.keyboard-cursor td:not(:first-child):not(:last-child)::before {
     inset 0 0 0 1px rgba(63, 185, 80, 0.45);
 }
 
+/* The file `v` acts on: the cursor's, else the one under the mouse. The bar runs along the
+   whole file, so the end of a long file is easy to see. A border, because the file's content
+   paints over an outline or inset shadow. */
+main > [data-file-path] {
+  border-left: 3px solid transparent;
+}
+main:not(:has(> [data-cursor-file])) > [data-hovered],
+main > [data-cursor-file] {
+  border-left-color: #3fb950;
+}
+
+/* The same file in the file list */
+.current-file-row {
+  background-image: linear-gradient(rgba(63, 185, 80, 0.12), rgba(63, 185, 80, 0.12));
+  box-shadow: inset 3px 0 0 0 #3fb950;
+}
+
 /* Keyboard navigation cursor styles for split mode (td level) */
 td.keyboard-cursor {
   position: relative;
