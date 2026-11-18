@@ -1,4 +1,12 @@
-import { Columns, AlignLeft, Settings, PanelLeftClose, PanelLeft, Keyboard } from 'lucide-react';
+import {
+  Columns,
+  AlignLeft,
+  Settings,
+  PanelLeftClose,
+  PanelLeft,
+  Keyboard,
+  MessageSquare,
+} from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
 import {
@@ -171,10 +179,6 @@ function App() {
   const [hasTriggeredSparkles, setHasTriggeredSparkles] = useState(false);
   const [isCommentsListOpen, setIsCommentsListOpen] = useState(false);
   const [commentsListFilter, setCommentsListFilter] = useState<CommentFilter>('open');
-  const openCommentsList = useCallback((filter: CommentFilter = 'open') => {
-    setCommentsListFilter(filter);
-    setIsCommentsListOpen(true);
-  }, []);
   const [isRevisionModalOpen, setIsRevisionModalOpen] = useState(false);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const collapsedInitializedRef = useRef(false);
@@ -245,6 +249,17 @@ function App() {
   const commentActions = useMemo<CommentActions>(
     () => ({ reopenThread, deleteThread: removeThread, toggleTodo, markRead: markMessagesRead }),
     [markMessagesRead, removeThread, reopenThread, toggleTodo],
+  );
+
+  const openCommentsList = useCallback(
+    (filter?: CommentFilter) => {
+      // Without a filter: the open threads, or the history when every thread is resolved.
+      setCommentsListFilter(
+        filter ?? (threads.some((thread) => !thread.resolved) ? 'open' : 'resolved'),
+      );
+      setIsCommentsListOpen(true);
+    },
+    [threads],
   );
 
   const showMobileCommentsBar = isMobile && threads.length > 0;
@@ -782,7 +797,7 @@ function App() {
         }
       },
       onShowCommentsList: () => {
-        setIsCommentsListOpen(true);
+        openCommentsList();
       },
       onRefresh: () => {
         reload();
@@ -1563,6 +1578,19 @@ function App() {
                   isMobile ? 'gap-3' : 'gap-4'
                 }`}
               >
+                {threads.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => openCommentsList()}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-github-bg-tertiary"
+                    title="All comment threads (Shift+L)"
+                  >
+                    <MessageSquare size={13} />
+                    {commentCounts.open > 0
+                      ? `${commentCounts.open} ${commentCounts.open === 1 ? 'comment' : 'comments'}`
+                      : `${threads.length} resolved`}
+                  </button>
+                )}
                 {(commentCounts.unread > 0 || commentCounts.todo > 0) && (
                   <div className="flex items-center gap-1 text-xs" data-testid="comment-counters">
                     {commentCounts.unread > 0 && (
