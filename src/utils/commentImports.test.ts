@@ -71,6 +71,32 @@ describe('commentImports', () => {
       ]);
     });
 
+    it('accepts a file comment on line 0', () => {
+      const [comment] = parseCommentImportValue(
+        JSON.stringify({
+          type: 'thread',
+          filePath: 'src/example.ts',
+          position: { side: 'new', line: 0 },
+          body: 'About the whole file',
+        }),
+      );
+
+      expect(comment?.position).toEqual({ side: 'new', line: 0 });
+    });
+
+    it('rejects a negative line', () => {
+      expect(() =>
+        parseCommentImportValue(
+          JSON.stringify({
+            type: 'thread',
+            filePath: 'src/example.ts',
+            position: { side: 'new', line: -1 },
+            body: 'Nope',
+          }),
+        ),
+      ).toThrow('position.line');
+    });
+
     it('parses an array of imports', () => {
       const imports = parseCommentImportValue(
         JSON.stringify([

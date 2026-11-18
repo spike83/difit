@@ -9,6 +9,7 @@ import type {
   ThreadCommentImport,
 } from '../types/diff.js';
 import { createId } from './createId.js';
+import { isFileCommentLine } from './fileComments.js';
 
 interface MergeCommentImportsResult {
   threads: DiffCommentThread[];
@@ -37,7 +38,11 @@ function normalizeTimestamp(
 }
 
 function normalizeLineRange(value: unknown): DiffLineRange {
-  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+  if (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    (value > 0 || isFileCommentLine(value))
+  ) {
     return value;
   }
 

@@ -1,5 +1,6 @@
 import type { BaseMode, Comment, CommentThread, DiffSide } from '../types/diff';
 
+import { isFileCommentLine } from './fileComments.js';
 import { hasSuggestionBlock, parseSuggestionBlocks } from './suggestionUtils.js';
 
 function getLineInfo(line: number | number[]): string {
@@ -16,6 +17,7 @@ export interface CommentPromptDiffContext {
 
 function formatCommentLocation(file: string, line: number | number[], side?: DiffSide): string {
   const filePath = file || '<unknown file>';
+  if (isFileCommentLine(line)) return filePath;
   return `${filePath}:${getLineInfo(line)}${side === 'old' ? ' (old)' : ''}`;
 }
 

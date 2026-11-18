@@ -7,6 +7,7 @@ import {
   type CommentThread,
   type LineNumber,
 } from '../../types/diff';
+import { FILE_COMMENT_LINE, isFileCommentLine } from '../../utils/fileComments';
 import { FileLevelTokensProvider } from '../contexts/FileLevelTokensContext';
 import { type CursorPosition } from '../hooks/keyboardNavigation';
 import { type MergedChunk } from '../hooks/useExpandedLines';
@@ -16,6 +17,8 @@ import { chunksHaveExpandedLines, chunksHaveHiddenLines } from '../utils/mergedC
 import { getViewerForFile } from '../viewers/registry';
 import type { DiffViewerBodyProps } from '../viewers/types';
 
+import { CommentForm } from './CommentForm';
+import { CommentThreadCard } from './CommentThreadCard';
 import { DiffViewerHeader, type FileContentSource } from './DiffViewerHeader';
 import type { AppearanceSettings } from './SettingsModal';
 
@@ -79,6 +82,8 @@ interface DiffViewerProps {
   onCommentTriggerHandled?: () => void;
   expandToggleTrigger?: { fileIndex: number } | null;
   onExpandToggleHandled?: () => void;
+  fileCommentTrigger?: { fileIndex: number } | null;
+  onFileCommentTriggerHandled?: () => void;
   diffVersion?: number;
   markdownPreviewMode?: DiffViewerBodyProps['markdownPreviewMode'];
   onMarkdownPreviewModeChange?: DiffViewerBodyProps['onMarkdownPreviewModeChange'];
@@ -211,6 +216,8 @@ export const DiffViewer = memo(function DiffViewer({
   onCommentTriggerHandled,
   expandToggleTrigger,
   onExpandToggleHandled,
+  fileCommentTrigger,
+  onFileCommentTriggerHandled,
   mergedChunks,
   expandLines,
   expandAllBetweenChunks,
@@ -302,6 +309,22 @@ export const DiffViewer = memo(function DiffViewer({
       void prefetchFileContent(file);
     }
   }, [isVisible, isCollapsed, canExpandHiddenLines, file, prefetchFileContent]);
+
+  const fileThreads = useMemo(
+    () => threads.filter((thread) => isFileCommentLine(thread.line)),
+    [threads],
+  );
+  const lineThreads = useMemo(
+    () => threads.filter((thread) => !isFileCommentLine(thread.line)),
+    [threads],
+  );
+  const [isCommentingFile, setIsCommentingFile] = useState(false);
+
+  useEffect(() => {
+    if (!fileCommentTrigger) return;
+    setIsCommentingFile(true);
+    onFileCommentTriggerHandled?.();
+  }, [fileCommentTrigger, onFileCommentTriggerHandled]);
 
   const handleAddComment = useCallback(
     async (line: LineNumber, body: string, codeContent?: string, side?: DiffSide) => {
@@ -396,7 +419,7 @@ export const DiffViewer = memo(function DiffViewer({
   const ViewerComponent = viewer.Component;
   const viewerProps: DiffViewerBodyProps = {
     file,
-    threads,
+    threads: lineThreads,
     showAuthorBadges,
     diffMode,
     syntaxTheme,
@@ -440,7 +463,39 @@ export const DiffViewer = memo(function DiffViewer({
         onToggleCollapsed={onToggleCollapsed}
         onToggleAllCollapsed={onToggleAllCollapsed}
         onToggleReviewed={onToggleReviewed}
+        onCommentFile={() => setIsCommentingFile(true)}
       />
+
+      {((!isCollapsed && fileThreads.length > 0) || isCommentingFile) && (
+        <div className="flex flex-col gap-2 border-b border-github-border bg-github-bg-secondary p-2 px-4">
+          {!isCollapsed &&
+            fileThreads.map((thread) => (
+              <CommentThreadCard
+                key={thread.id}
+                thread={thread}
+                showAuthorBadges={showAuthorBadges}
+                onGeneratePrompt={onGenerateThreadPrompt}
+                onRemoveThread={onRemoveThread}
+                onReplyToThread={onReplyToThread}
+                onRemoveMessage={onRemoveMessage}
+                onUpdateMessage={onUpdateMessage}
+                syntaxTheme={syntaxTheme}
+              />
+            ))}
+          {isCommentingFile && (
+            <CommentForm
+              title="Comment on file"
+              onSubmit={async (body) => {
+                await handleAddComment(FILE_COMMENT_LINE, body, undefined, 'new');
+                setIsCommentingFile(false);
+              }}
+              onCancel={() => setIsCommentingFile(false)}
+              syntaxTheme={syntaxTheme}
+              filename={file.path}
+            />
+          )}
+        </div>
+      )}
 
       {!isCollapsed && (
         <FileLevelTokensProvider value={fileLevelTokens}>

@@ -13,6 +13,7 @@ import {
 } from '../types/diff';
 import { DEFAULT_DIFF_VIEW_MODE, normalizeDiffViewMode } from '../utils/diffMode';
 import { mergeCommentThreads } from '../utils/commentImports';
+import { isFileCommentLine } from '../utils/fileComments';
 import {
   createDiffSelection,
   diffSelectionsEqual,
@@ -603,6 +604,8 @@ function App() {
   const [expandToggleTrigger, setExpandToggleTrigger] = useState<{ fileIndex: number } | null>(
     null,
   );
+  // State to open a file comment from keyboard
+  const [fileCommentTrigger, setFileCommentTrigger] = useState<{ fileIndex: number } | null>(null);
   const fetchDiffDataRef = useRef<((selection?: DiffSelection) => Promise<void>) | null>(null);
   const handleWatchReload = useCallback(async () => {
     await fetchDiffDataRef.current?.();
@@ -639,22 +642,27 @@ function App() {
     return section && main.contains(section) ? (section.dataset.filePath ?? null) : null;
   }, []);
 
-  // The file `v` acts on without a cursor, marked in the diff and the file list: the one
-  // under the mouse, else the one last hovered or clicked in the file list.
+  // The file `v` acts on, marked in the diff and the file list. Whatever was used last decides:
+  // the mouse (moved or wheeled) picks the file under it, the keyboard cursor its own file, and
+  // a click in the file list the clicked file.
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   const currentFilePathRef = useRef(currentFilePath);
   currentFilePathRef.current = currentFilePath;
+  const isPointerLeadingRef = useRef(false);
   const getHoveredFileIndex = useCallback(() => {
-    const path = filePathAtPointer() ?? currentFilePathRef.current;
+    const path =
+      (isPointerLeadingRef.current ? filePathAtPointer() : null) ?? currentFilePathRef.current;
     const index = path ? (diffData?.files.findIndex((file) => file.path === path) ?? -1) : -1;
     return index >= 0 ? index : null;
   }, [filePathAtPointer, diffData]);
   const markHoveredFile = useCallback(() => {
+    if (!isPointerLeadingRef.current) return;
     const path = filePathAtPointer();
     if (path) setCurrentFilePath(path);
   }, [filePathAtPointer]);
   const scrollToFileFromList = useCallback(
     (path: string) => {
+      isPointerLeadingRef.current = false;
       setCurrentFilePath(path);
       scrollToFileRestoringPosition(path);
     },
@@ -664,7 +672,11 @@ function App() {
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
       pointerRef.current = { x: event.clientX, y: event.clientY };
+      isPointerLeadingRef.current = true;
       markHoveredFile();
+    };
+    const onWheel = () => {
+      isPointerLeadingRef.current = true;
     };
     const onMouseOut = (event: MouseEvent) => {
       if (event.relatedTarget) return;
@@ -673,10 +685,12 @@ function App() {
       markHoveredFile();
     };
     document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('wheel', onWheel, { passive: true });
     document.addEventListener('mouseout', onMouseOut);
     document.addEventListener('scroll', markHoveredFile, true);
     return () => {
       document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('wheel', onWheel);
       document.removeEventListener('mouseout', onMouseOut);
       document.removeEventListener('scroll', markHoveredFile, true);
     };
@@ -742,7 +756,16 @@ function App() {
       },
       onPreviewModeChange: handleMarkdownPreviewModeChange,
       onToggleExpandAllLines: (fileIndex) => setExpandToggleTrigger({ fileIndex }),
+      onCreateFileComment: (fileIndex) => setFileCommentTrigger({ fileIndex }),
     });
+
+  // A cursor move hands the current file to the keyboard until the mouse moves again
+  useEffect(() => {
+    const filePath = cursor ? diffData?.files[cursor.fileIndex]?.path : undefined;
+    if (!filePath) return;
+    isPointerLeadingRef.current = false;
+    setCurrentFilePath(filePath);
+  }, [cursor, diffData]);
 
   // Viewed button in the diff header: silently remember the toggled file as
   // the navigation position, so keyboard navigation resumes from it without
@@ -789,6 +812,7 @@ function App() {
   }, [setCommentTrigger]);
 
   const handleExpandToggleHandled = useCallback(() => setExpandToggleTrigger(null), []);
+  const handleFileCommentTriggerHandled = useCallback(() => setFileCommentTrigger(null), []);
 
   const handleGenerateThreadPrompt = useCallback(
     (thread: CommentThread) => generateThreadPrompt(thread.id),
@@ -1242,6 +1266,11 @@ function App() {
   const handleNavigateToComment = (thread: CommentThread) => {
     if (!diffData) return;
 
+    if (isFileCommentLine(thread.line)) {
+      scrollToFileFromList(thread.file);
+      return;
+    }
+
     const position = findCommentPosition(thread, diffData.files);
     if (position) {
       setCursorPosition(position);
@@ -1586,10 +1615,9 @@ function App() {
                   onToggleReviewed={toggleFileReviewed}
                   onToggleFolderReviewed={toggleFolderReviewed}
                   selectedFileIndex={
-                    cursor?.fileIndex ??
-                    (currentFilePath
+                    currentFilePath
                       ? diffData.files.findIndex((file) => file.path === currentFilePath)
-                      : null)
+                      : null
                   }
                 />
               </div>
@@ -1646,11 +1674,7 @@ function App() {
                   data-file-path={file.path}
                   data-rendered={isRendered ? 'true' : 'false'}
                   ref={(node) => registerLazyFileContainer(file.path, node)}
-                  data-current-file={
-                    (cursor ? cursor.fileIndex === fileIndex : file.path === currentFilePath)
-                      ? ''
-                      : undefined
-                  }
+                  data-current-file={file.path === currentFilePath ? '' : undefined}
                   className="mb-6"
                 >
                   {isRendered ? (
@@ -1687,6 +1711,10 @@ function App() {
                         expandToggleTrigger?.fileIndex === fileIndex ? expandToggleTrigger : null
                       }
                       onExpandToggleHandled={handleExpandToggleHandled}
+                      fileCommentTrigger={
+                        fileCommentTrigger?.fileIndex === fileIndex ? fileCommentTrigger : null
+                      }
+                      onFileCommentTriggerHandled={handleFileCommentTriggerHandled}
                       mergedChunks={mergedChunks}
                       expandLines={expandLines}
                       expandAllBetweenChunks={expandAllBetweenChunks}

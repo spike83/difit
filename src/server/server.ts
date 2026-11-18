@@ -25,6 +25,7 @@ import {
   NONE_EDITOR_ID,
   resolveEditorOption,
 } from '../utils/editorOptions.js';
+import { isFileCommentLine } from '../utils/fileComments.js';
 import { getFileExtension } from '../utils/fileUtils.js';
 
 import { FileWatcherService } from './file-watcher.js';
@@ -576,7 +577,11 @@ export async function startServer(
       }
     }
 
-    if (typeof line === 'number' && Number.isInteger(line) && line > 0) {
+    if (
+      typeof line === 'number' &&
+      Number.isInteger(line) &&
+      (line > 0 || isFileCommentLine(line))
+    ) {
       return line;
     }
 

@@ -26,6 +26,11 @@ describe('commentFormatting', () => {
       expect(result).toBe('src/utils/validation.ts:L100-L120\nExtract validation logic');
     });
 
+    it('names only the file for a file comment', () => {
+      const result = formatCommentPrompt('src/index.ts', 0, 'Split this file', undefined, 'old');
+      expect(result).toBe('src/index.ts\nSplit this file');
+    });
+
     it('should handle multi-line comment body', () => {
       const body = 'This is a comment\nwith multiple lines\nof text';
       const result = formatCommentPrompt('src/index.ts', 10, body);

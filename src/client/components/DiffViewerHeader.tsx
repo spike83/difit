@@ -9,6 +9,7 @@ import {
   FilePlus,
   FileX,
   FoldVertical,
+  MessageSquarePlus,
   Square,
   UnfoldVertical,
 } from 'lucide-react';
@@ -50,6 +51,7 @@ interface DiffViewerHeaderProps {
   onToggleCollapsed: (path: string) => void;
   onToggleAllCollapsed: (shouldCollapse: boolean) => void;
   onToggleReviewed: (path: string) => void;
+  onCommentFile?: () => void;
 }
 
 const getFileIcon = (status: DiffFile['status']) => {
@@ -76,6 +78,7 @@ export const DiffViewerHeader = ({
   onToggleCollapsed,
   onToggleAllCollapsed,
   onToggleReviewed,
+  onCommentFile,
 }: DiffViewerHeaderProps) => {
   const [isCopied, setIsCopied] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -184,6 +187,17 @@ export const DiffViewerHeader = ({
           >
             Updated
           </span>
+        )}
+        {onCommentFile && (
+          <button
+            type="button"
+            className="bg-transparent border-none cursor-pointer px-1.5 py-1 rounded text-sm transition-all hover:bg-github-bg-tertiary text-github-text-secondary hover:text-github-text-primary"
+            onClick={onCommentFile}
+            title="Comment on file (Shift+F)"
+            aria-label="Comment on file"
+          >
+            <MessageSquarePlus size={14} />
+          </button>
         )}
         {contentSource && (
           <CopyContentButton
