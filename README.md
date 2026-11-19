@@ -8,12 +8,14 @@
 </p>
 
 <p align="center">
-  English | <a href="./README.ja.md">日本語</a> | <a href="./README.zh.md">简体中文</a> | <a href="./README.ko.md">한국어</a>
+  English | <a href="./README.ja.md">Japanese</a> | <a href="./README.zh.md">Chinese (Simplified)</a> | <a href="./README.ko.md">Korean</a>
 </p>
 
 ![difit screenshot](docs/images/screenshot.png)
 
 **difit** is a CLI tool that lets you view and review local git diffs with a GitHub-style viewer. In addition to clean visuals, comments can be copied as prompts for AI. The local code review tool for the AI era!
+
+> **This is a fork** of [yoshiko-pg/difit](https://github.com/yoshiko-pg/difit). It adds a live review loop with an AI agent: comments are stored in the repository, threads keep their history, and the agent's progress shows on each message. See [Live review with an agent](#-live-review-with-an-agent-fork) for setup and workflow.
 
 ## ⚡ Quick Start
 
@@ -166,7 +168,7 @@ difit includes a review comment system that makes it easy to provide feedback to
 2. **Edit Comments**: Edit existing comments with the edit button
 3. **Generate Prompts**: Comments include a "Copy Prompt" button that formats the context for AI coding agents
 4. **Copy All**: Use "Copy All Prompt" to copy all comments in a structured format
-5. **Persistent Storage**: Comments are saved in browser localStorage per commit
+5. **Persistent Storage**: Comments are saved in `<git dir>/difit/comments/`, one file per selection as typed, so they survive a server restart
 
 ### Comment Prompt Format
 
@@ -197,6 +199,79 @@ Installed skills include:
 
 After code edits or automated review, the agent can start the difit server with the appropriate skill.
 
+## 🔁 Live review with an agent (fork)
+
+The upstream skills open difit once and read the comments when the server exits. The fork's `difit-live` skill keeps the review running: you comment in the browser while the agent works, and the agent answers in the same thread.
+
+### Install difit from the fork
+
+Requires Node.js 21 or newer and git.
+
+```bash
+git clone https://github.com/spike83/difit.git ~/git/difit
+cd ~/git/difit
+corepack enable          # provides the pinned pnpm
+pnpm install
+pnpm run build
+mkdir -p ~/.local/bin
+ln -sfn "$PWD/dist/cli/index.js" ~/.local/bin/difit
+difit --help | grep -- --title   # the fork is on PATH
+```
+
+`~/.local/bin` must be on your `PATH`. To update, run `git pull && pnpm install && pnpm run build`. Running servers pick up client changes on the next page load; server changes need a restart.
+
+### Install the skill
+
+The skill lives in [`skills/difit-live`](skills/difit-live): `SKILL.md` tells the agent how to run the review, and `scripts/difit-review.py` (Python 3, no dependencies) talks to the difit API. Link both from the clone, so a `git pull` updates them:
+
+```bash
+# Claude Code
+mkdir -p ~/.claude/skills
+ln -sfn ~/git/difit/skills/difit-live ~/.claude/skills/difit-live
+# Codex
+mkdir -p ~/.codex/skills
+ln -sfn ~/git/difit/skills/difit-live ~/.codex/skills/difit-live
+# the helper
+ln -sfn ~/git/difit/skills/difit-live/scripts/difit-review.py ~/.local/bin/difit-review.py
+```
+
+The watcher reads `/proc` to tell which agent runs it, so it works on Linux and WSL. Elsewhere, set `DIFIT_AUTHOR=Claude` (or `Codex`) in the agent's environment.
+
+The skill is a template: adapt the title convention, the default flags and the rules to your own setup.
+
+### How a review runs
+
+1. **Ask for it.** "Show me the changes in difit" or "open the draft in difit". The agent starts difit in the background with a title such as `billing-api: token refresh review`, gives you the URL, and starts the comment watcher.
+2. **Comment.** Click a line, drag over a range, or comment on a whole file from its header (`Shift+F`). Select text inside a line to quote it.
+3. **The agent answers.** The watcher wakes the agent on each new comment. It marks the message as seen, then working, and replies, asks you to decide (the thread gets a todo flag), or makes the change and resolves the thread with a note on what it did. Each message shows the agent's state as a chip; a working chip without a reply for 30 minutes turns orange.
+4. **Follow the changes.** Click Refresh when the agent edits files. Comments move with the code. A file you marked as viewed comes back unviewed, with a note from `difit` on what changed.
+5. **Check the result.** Resolved threads stay as history: greyed out and collapsed, with Reopen. Replying to one reopens it, and the agent picks it up again.
+6. **End it.** Close the tab or tell the agent you are done. The agent summarizes and stops the watcher.
+
+The comments list (`Shift+L` or the 💬 button in the toolbar) shows every thread with the filters Open, Unread, Todos, Waiting on agent and Resolved.
+
+| Key                     | Action                                              |
+| ----------------------- | --------------------------------------------------- |
+| `u` / `Shift+U`         | next / previous unread thread                       |
+| `t`                     | toggle the todo flag of the thread under the cursor |
+| `Shift+L`               | open the comments list                              |
+| `d` / `r` (in the list) | resolve / reopen the selected thread                |
+
+A message counts as read after it has been on screen for about 1.5 seconds.
+
+### Under the hood
+
+The helper uses the fork's comment API on the running server:
+
+| Endpoint                         | Purpose                                                                           |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| `GET /api/comments-json`         | all threads with their messages and state                                         |
+| `POST /api/comments/:id/replies` | reply (`{body, author, todo?}`); a reply to a resolved thread reopens it          |
+| `POST /api/comments/:id/status`  | set an agent's state on messages (`{agent, state}`: `seen`, `working`, `handled`) |
+| `PATCH /api/comments/:id`        | resolve with a note, reopen, set or clear todo, move the anchor                   |
+
+Two agents can review together: each one signs its messages (`Claude`, `Codex`), and each watcher treats the other agent's messages as review input.
+
 ## 🎨 Syntax Highlighting Languages
 
 - **JavaScript/TypeScript**: `.js`, `.jsx`, `.ts`, `.tsx`, `.svelte`
@@ -207,6 +282,8 @@ After code edits or automated review, the agent can start the difit server with 
 - **Mobile Languages**: Swift, Kotlin, Dart
 - **Infrastructure as Code**: Terraform (HCL), Nix
 - **Others**: Python, Protobuf, YAML, Solidity, Vim script, GDScript
+
+Markdown and AsciiDoc (`.adoc`, `.asciidoc`, `.asc`) files also have rendered views: Split, Diff and Full Preview. AsciiDoc support is fork-only; its images load from the repository.
 
 ## 🔍 Auto-collapsed Files
 

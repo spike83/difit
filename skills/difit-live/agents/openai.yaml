@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Difit Live'
+  short_description: 'Live review in difit: the user comments, the agent answers.'
+  default_prompt: 'Use $difit-live to open the changes in difit with a comment watcher and answer the review comments as they come in.'
